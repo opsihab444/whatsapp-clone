@@ -69,11 +69,11 @@ export function SidebarHeader({
   return (
     <header className="flex flex-col bg-secondary border-r border-border z-20">
       {/* Top Bar: Avatar & Actions */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-secondary h-[59px]">
+      <div className="flex items-center justify-between px-4 py-3 bg-secondary h-[64px]">
         <div className="flex items-center gap-3" role="banner">
-          <Avatar className="h-10 w-10 cursor-pointer hover:opacity-80 transition-opacity">
+          <Avatar className="h-11 w-11 cursor-pointer hover:opacity-80 transition-opacity">
             {userAvatar && <AvatarImage src={userAvatar} alt={userName || userEmail} />}
-            <AvatarFallback className="bg-muted text-muted-foreground font-medium">{initials}</AvatarFallback>
+            <AvatarFallback className="bg-muted text-muted-foreground font-medium text-lg">{initials}</AvatarFallback>
           </Avatar>
         </div>
 
@@ -117,10 +117,10 @@ export function SidebarHeader({
       </div>
 
       {/* Search Bar */}
-      <div className="px-3 pb-1.5 pt-1.5 bg-background border-b border-border/50">
+      <div className="px-3 pb-2 pt-2 bg-background border-b border-border/50">
         <div className="relative group">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60 group-focus-within:text-primary transition-colors z-10">
-            <Search className="h-[18px] w-[18px]" />
+            <Search className="h-[19px] w-[19px]" />
           </div>
           <Input
             type="search"
@@ -128,35 +128,35 @@ export function SidebarHeader({
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="pl-12 bg-secondary border-none focus-visible:ring-0 h-[35px] rounded-lg text-[14px] placeholder:text-muted-foreground/60 text-foreground shadow-none"
+            className="pl-12 bg-secondary border-none focus-visible:ring-0 h-[38px] rounded-lg text-[15px] placeholder:text-muted-foreground/60 text-foreground shadow-none"
             aria-label="Search conversations or enter email"
           />
         </div>
       </div>
 
       {/* Filter Tabs */}
-      <div className="px-3 py-2 flex items-center gap-2 border-b border-border/50 bg-background">
+      <div className="px-3 py-2.5 flex items-center gap-2 border-b border-border/50 bg-background">
         <Button
           variant="ghost"
-          className="h-7 px-3 rounded-full bg-secondary hover:bg-secondary/80 text-foreground text-[13px] font-normal"
+          className="h-8 px-3.5 rounded-full bg-secondary hover:bg-secondary/80 text-foreground text-[14px] font-normal"
         >
           All
         </Button>
         <Button
           variant="ghost"
-          className="h-7 px-3 rounded-full hover:bg-secondary/50 text-muted-foreground text-[13px] font-normal"
+          className="h-8 px-3.5 rounded-full hover:bg-secondary/50 text-muted-foreground text-[14px] font-normal"
         >
           Unread
         </Button>
         <Button
           variant="ghost"
-          className="h-7 px-3 rounded-full hover:bg-secondary/50 text-muted-foreground text-[13px] font-normal"
+          className="h-8 px-3.5 rounded-full hover:bg-secondary/50 text-muted-foreground text-[14px] font-normal"
         >
           Favorites
         </Button>
         <Button
           variant="ghost"
-          className="h-7 px-3 rounded-full hover:bg-secondary/50 text-muted-foreground text-[13px] font-normal"
+          className="h-8 px-3.5 rounded-full hover:bg-secondary/50 text-muted-foreground text-[14px] font-normal"
         >
           Groups
         </Button>

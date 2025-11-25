@@ -26,7 +26,7 @@ export function ChatList({ searchQuery, activeChatId, onChatSelect }: ChatListPr
   const rowVirtualizer = useVirtualizer({
     count: conversations?.length || 0,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 72, // Fixed height from ChatRow
+    estimateSize: () => 80, // Fixed height from ChatRow
     overscan: 5,
   });
 

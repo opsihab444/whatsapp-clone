@@ -49,10 +49,16 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
       clearTimeout(typingTimeoutRef.current);
     }
 
-    // Stop broadcasting after 2 seconds of inactivity
+    // Stop broadcasting after 1.5 seconds of inactivity and send stop event
     typingTimeoutRef.current = setTimeout(() => {
       isTypingRef.current = false;
-    }, 2000);
+      // Send stop typing event to receiver
+      supabase.channel(`typing:${conversationId}`).send({
+        type: 'broadcast',
+        event: 'stopTyping',
+        payload: { userId: currentUserId },
+      });
+    }, 1500);
   }, [conversationId, currentUserId, currentUserName, supabase]);
 
   // Stop broadcasting typing on unmount
@@ -208,7 +214,15 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
-    isTypingRef.current = false;
+    if (isTypingRef.current) {
+      isTypingRef.current = false;
+      // Send stop typing event immediately
+      supabase.channel(`typing:${conversationId}`).send({
+        type: 'broadcast',
+        event: 'stopTyping',
+        payload: { userId: currentUserId },
+      });
+    }
 
     // Check if user is offline
     if (!navigator.onLine) {
@@ -271,19 +285,19 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
   };
 
   return (
-    <div className="bg-secondary px-4 py-2 border-t border-border z-20 min-h-[62px] flex items-end" role="form" aria-label="Message input">
+    <div className="bg-secondary px-4 py-3 border-t border-border z-20 min-h-[68px] flex items-end" role="form" aria-label="Message input">
       <div className="flex items-end gap-2 w-full max-w-4xl mx-auto">
         {/* Attach Button */}
         <div className="flex items-center gap-2 pb-2">
-          <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground/60 hover:text-muted-foreground hover:bg-transparent shrink-0 transition-colors">
+          <Button variant="ghost" size="icon" className="h-11 w-11 text-muted-foreground/60 hover:text-muted-foreground hover:bg-transparent shrink-0 transition-colors">
             <Smile className="h-6 w-6" />
           </Button>
-          <Button variant="ghost" size="icon" className="h-10 w-10 text-muted-foreground/60 hover:text-muted-foreground hover:bg-transparent shrink-0 transition-colors">
+          <Button variant="ghost" size="icon" className="h-11 w-11 text-muted-foreground/60 hover:text-muted-foreground hover:bg-transparent shrink-0 transition-colors">
             <Plus className="h-6 w-6" />
           </Button>
         </div>
 
-        <div className="flex-1 flex items-end gap-2 bg-input rounded-lg px-3 py-2 my-1.5 focus-within:bg-input/80 transition-all">
+        <div className="flex-1 flex items-end gap-2 bg-input rounded-lg px-4 py-2.5 my-1.5 focus-within:bg-input/80 transition-all">
           <Textarea
             ref={textareaRef}
             value={message}
@@ -295,7 +309,7 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
             }}
             onKeyDown={handleKeyDown}
             placeholder="Type a message"
-            className="min-h-[24px] max-h-[150px] w-full resize-none border-0 bg-transparent p-0 focus-visible:ring-0 placeholder:text-muted-foreground/60 leading-6 py-0.5 text-[15px] text-foreground"
+            className="min-h-[26px] max-h-[150px] w-full resize-none border-0 bg-transparent p-0 focus-visible:ring-0 placeholder:text-muted-foreground/60 leading-6 py-0.5 text-[15.5px] text-foreground"
             rows={1}
             aria-label="Message input"
           />
@@ -307,7 +321,7 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
             <Button
               onClick={handleSend}
               size="icon"
-              className="h-10 w-10 rounded-full shrink-0 bg-transparent text-muted-foreground/60 hover:text-primary hover:bg-transparent shadow-none transition-all"
+              className="h-11 w-11 rounded-full shrink-0 bg-transparent text-muted-foreground/60 hover:text-primary hover:bg-transparent shadow-none transition-all"
               aria-label="Send message"
             >
               <Send className="h-6 w-6" />
@@ -316,7 +330,7 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
             <Button
               variant="ghost"
               size="icon"
-              className="h-10 w-10 text-muted-foreground/60 hover:text-muted-foreground hover:bg-transparent shrink-0 transition-colors"
+              className="h-11 w-11 text-muted-foreground/60 hover:text-muted-foreground hover:bg-transparent shrink-0 transition-colors"
               aria-label="Voice message"
             >
               <Mic className="h-6 w-6" />

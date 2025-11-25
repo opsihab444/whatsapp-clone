@@ -180,7 +180,7 @@ export default function MainLayout({
           {/* Sidebar - responsive */}
           <div
             className={`
-              w-full md:w-[400px] border-r border-border flex flex-col bg-background
+              w-full md:w-[420px] border-r border-border flex flex-col bg-background
               ${activeChatId ? 'hidden md:flex' : 'flex'}
               ${isSidebarOpen ? '!flex absolute inset-0 z-40' : ''}
             `}

@@ -72,22 +72,22 @@ export default function ChatPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Chat header */}
-      <header className="flex items-center justify-between bg-background px-4 py-2.5 border-b border-border z-10 shadow-sm" role="banner">
+      <header className="flex items-center justify-between bg-background px-4 py-3 border-b border-border z-10 shadow-sm min-h-[64px]" role="banner">
         <div className="flex items-center gap-4 overflow-hidden">
           {conversation ? (
             <>
-              <Avatar className="h-10 w-10 cursor-pointer hover:opacity-90 transition-opacity">
+              <Avatar className="h-11 w-11 cursor-pointer hover:opacity-90 transition-opacity">
                 <AvatarImage src={conversation.other_user.avatar_url || undefined} className="object-cover" />
-                <AvatarFallback className="bg-muted text-muted-foreground">
+                <AvatarFallback className="bg-muted text-muted-foreground text-lg">
                   {conversation.other_user.full_name?.[0]?.toUpperCase() ||
                     conversation.other_user.email[0].toUpperCase()}
                 </AvatarFallback>
               </Avatar>
               <div className="flex flex-col justify-center overflow-hidden cursor-pointer">
-                <h1 className="font-medium text-base text-foreground truncate leading-tight">
+                <h1 className="font-medium text-[17px] text-foreground truncate leading-tight">
                   {conversation.other_user.full_name || conversation.other_user.email}
                 </h1>
-                <p className="text-xs text-muted-foreground truncate">
+                <p className="text-[13px] text-muted-foreground truncate mt-0.5">
                   click here for contact info
                 </p>
               </div>
@@ -95,7 +95,7 @@ export default function ChatPage() {
           ) : (
             // Header Skeleton
             <div className="flex items-center gap-4">
-              <Skeleton className="h-10 w-10 rounded-full" />
+              <Skeleton className="h-11 w-11 rounded-full" />
               <div className="space-y-2">
                 <Skeleton className="h-4 w-32" />
                 <Skeleton className="h-3 w-20" />
@@ -105,11 +105,11 @@ export default function ChatPage() {
         </div>
 
         <div className="flex items-center gap-1 text-muted-foreground">
-          <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full hover:bg-muted/50">
+          <Button variant="ghost" size="icon" className="h-11 w-11 rounded-full hover:bg-muted/50">
             <Search className="h-5 w-5" />
             <span className="sr-only">Search</span>
           </Button>
-          <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full hover:bg-muted/50">
+          <Button variant="ghost" size="icon" className="h-11 w-11 rounded-full hover:bg-muted/50">
             <MoreVertical className="h-5 w-5" />
             <span className="sr-only">Menu</span>
           </Button>
@@ -120,6 +120,7 @@ export default function ChatPage() {
       <main className="flex-1 overflow-hidden" role="main" aria-label="Messages">
         {currentUser ? (
           <MessageList
+            key={chatId}
             conversationId={chatId}
             currentUserId={currentUser.id}
           />
@@ -132,6 +133,7 @@ export default function ChatPage() {
       {/* Input area */}
       {currentUser ? (
         <InputArea
+          key={chatId}
           conversationId={chatId}
           currentUserId={currentUser.id}
           currentUserName={currentUser.name}

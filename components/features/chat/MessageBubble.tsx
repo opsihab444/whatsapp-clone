@@ -10,9 +10,10 @@ interface MessageBubbleProps {
   message: Message;
   isOwnMessage: boolean;
   senderName?: string;
+  showTail?: boolean; // Show tail only for first message in a group from same sender
 }
 
-function MessageBubbleComponent({ message, isOwnMessage, senderName }: MessageBubbleProps) {
+function MessageBubbleComponent({ message, isOwnMessage, senderName, showTail = true }: MessageBubbleProps) {
   const {
     id,
     content,
@@ -73,14 +74,14 @@ function MessageBubbleComponent({ message, isOwnMessage, senderName }: MessageBu
   return (
     <div
       className={cn(
-        'flex w-full mb-1 group relative px-[6%] md:px-[9%]',
+        'flex w-full mb-2 group relative px-[4%] md:px-[8%]',
         isOwnMessage ? 'justify-end' : 'justify-start'
       )}
       role="article"
       aria-label={`Message ${is_deleted ? 'deleted' : ''} ${is_edited ? 'edited' : ''}`}
     >
       <div className={cn(
-        "flex flex-col max-w-[65%] relative group/bubble",
+        "flex flex-col max-w-[75%] md:max-w-[65%] relative group/bubble",
         isOwnMessage ? "items-end" : "items-start"
       )}>
 
@@ -88,39 +89,41 @@ function MessageBubbleComponent({ message, isOwnMessage, senderName }: MessageBu
           "flex relative",
           isOwnMessage ? "flex-row-reverse" : "flex-row"
         )}>
-          {/* Tail SVG */}
-          <div className={cn(
-            "absolute top-0 w-2 h-3 z-10",
-            isOwnMessage ? "-right-2" : "-left-2"
-          )}>
-            {isOwnMessage ? (
-              <svg viewBox="0 0 8 13" height="13" width="8" preserveAspectRatio="none" className="fill-chat-bubble-out block">
-                <path d="M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z"></path>
-              </svg>
-            ) : (
-              <svg viewBox="0 0 8 13" height="13" width="8" preserveAspectRatio="none" className="fill-chat-bubble-in block">
-                <path d="M1.533 3.568L8 12.193V1H2.812C1.042 1 .474 2.156 1.533 3.568z"></path>
-              </svg>
-            )}
-          </div>
+          {/* Tail SVG - only show for first message in group */}
+          {showTail && (
+            <div className={cn(
+              "absolute top-0 w-2 h-3 z-10",
+              isOwnMessage ? "-right-2" : "-left-2"
+            )}>
+              {isOwnMessage ? (
+                <svg viewBox="0 0 8 13" height="13" width="8" preserveAspectRatio="none" className="fill-chat-bubble-out block">
+                  <path d="M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z"></path>
+                </svg>
+              ) : (
+                <svg viewBox="0 0 8 13" height="13" width="8" preserveAspectRatio="none" className="fill-chat-bubble-in block">
+                  <path d="M1.533 3.568L8 12.193V1H2.812C1.042 1 .474 2.156 1.533 3.568z"></path>
+                </svg>
+              )}
+            </div>
+          )}
 
           {/* Bubble */}
           <div
             className={cn(
-              'rounded-lg px-2 py-1.5 shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] relative text-[14.2px] leading-[19px]',
+              'rounded-lg px-3 py-2 shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] relative text-[15px] leading-[22px]',
               isOwnMessage
-                ? 'bg-chat-bubble-out text-white rounded-tr-none'
-                : 'bg-chat-bubble-in text-[#e9edef] rounded-tl-none',
+                ? cn('bg-chat-bubble-out text-white', showTail && 'rounded-tr-none')
+                : cn('bg-chat-bubble-in text-[#e9edef]', showTail && 'rounded-tl-none'),
               is_deleted && 'italic opacity-70'
             )}
           >
             {/* Message content with space for timestamp */}
-            <div className="whitespace-pre-wrap break-words pr-[70px] pb-[2px] min-h-[20px]">
+            <div className="whitespace-pre-wrap break-words pr-[75px] pb-[3px] min-h-[22px]">
               {displayContent}
             </div>
 
             {/* Timestamp and status INSIDE bubble at bottom-right */}
-            <div className="absolute bottom-[5px] right-[7px] flex items-center gap-1">
+            <div className="absolute bottom-[6px] right-[8px] flex items-center gap-1">
               {is_edited && !is_deleted && (
                 <span className={cn(
                   "text-[11px] mr-1",
@@ -227,7 +230,8 @@ export const MessageBubble = React.memo(MessageBubbleComponent, (prevProps, next
     prevProps.message.is_deleted === nextProps.message.is_deleted &&
     prevProps.message.created_at === nextProps.message.created_at &&
     prevProps.isOwnMessage === nextProps.isOwnMessage &&
-    prevProps.senderName === nextProps.senderName
+    prevProps.senderName === nextProps.senderName &&
+    prevProps.showTail === nextProps.showTail
   );
 });
 

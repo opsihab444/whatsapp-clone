@@ -25,7 +25,14 @@ export function useRealtime() {
   const clearUserTyping = useUIStore((state) => state.clearUserTyping);
   const supabase = createClient();
   const typingTimeoutRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  
+  // Use ref to always have the latest activeChatId in callbacks (avoid stale closure)
+  const activeChatIdRef = useRef(activeChatId);
+  useEffect(() => {
+    activeChatIdRef.current = activeChatId;
+  }, [activeChatId]);
 
+  // Main message subscription - only recreate when supabase/queryClient changes (not activeChatId)
   useEffect(() => {
     // Subscribe to message INSERT events
     const channel = supabase
@@ -40,62 +47,63 @@ export function useRealtime() {
         async (payload) => {
           const newMessage = payload.new as Message;
 
+          // Use ref to get the CURRENT activeChatId (not stale closure value)
+          const currentActiveChatId = activeChatIdRef.current;
+          
           // Check if this message is for the active conversation and window is visible
-          const isActiveConversation = newMessage.conversation_id === activeChatId;
+          const isActiveConversation = newMessage.conversation_id === currentActiveChatId;
           const isWindowVisible = document.visibilityState === 'visible';
 
           // Get current user
           const { data: { user } } = await supabase.auth.getUser();
 
+          // ALWAYS add message to its conversation's cache (so it's there when user switches)
+          queryClient.setQueryData<{ pages: Message[][]; pageParams: number[] }>(
+            ['messages', newMessage.conversation_id],
+            (old) => {
+              if (!old) return old;
+
+              // Check if message already exists (to prevent duplicates from optimistic updates)
+              const messageExists = old.pages.some((page) =>
+                page.some((msg) => msg.id === newMessage.id)
+              );
+
+              if (messageExists) {
+                // Message already exists, just return old data
+                return old;
+              }
+
+              // Add the new message to the first page (most recent messages)
+              return {
+                ...old,
+                pages: [[newMessage, ...old.pages[0]], ...old.pages.slice(1)],
+              };
+            }
+          );
+
           if (isActiveConversation) {
-            // ALWAYS append message to active chat cache, regardless of visibility
-            queryClient.setQueryData<{ pages: Message[][]; pageParams: number[] }>(
-              ['messages', activeChatId],
-              (old) => {
-                if (!old) return old;
-
-                // Check if message already exists (to prevent duplicates from optimistic updates)
-                const messageExists = old.pages.some((page) =>
-                  page.some((msg) => msg.id === newMessage.id)
-                );
-
-                if (messageExists) {
-                  // Message already exists, just return old data
-                  return old;
-                }
-
-                // Add the new message to the first page (most recent messages)
-                return {
-                  ...old,
-                  pages: [[newMessage, ...old.pages[0]], ...old.pages.slice(1)],
-                };
-              }
-            );
-
             // Handle read status based on visibility
-            if (isWindowVisible) {
-              // Only mark as read if the message is from another user
-              if (user && newMessage.sender_id !== user.id) {
-                await updateMessageStatus(supabase, newMessage.id, 'read');
-                newMessage.status = 'read';
-              }
-            } else {
-              // Window is hidden, mark as delivered and increment unread count
-              if (user && newMessage.sender_id !== user.id) {
-                await updateMessageStatus(supabase, newMessage.id, 'delivered');
-                newMessage.status = 'delivered';
-              }
+            if (isWindowVisible && user && newMessage.sender_id !== user.id) {
+              // Mark as read and keep unread count at 0
+              await updateMessageStatus(supabase, newMessage.id, 'read');
+              newMessage.status = 'read';
 
-              // Increment unread count for the active conversation since user isn't looking
+              // Keep unread count at 0 in local cache (don't let it increment)
               queryClient.setQueryData<Conversation[]>(['conversations'], (old) => {
                 if (!old) return old;
-
                 return old.map((conv) =>
                   conv.id === newMessage.conversation_id
-                    ? { ...conv, unread_count: conv.unread_count + 1 }
+                    ? { ...conv, unread_count: 0 }
                     : conv
                 );
               });
+            } else if (!isWindowVisible && user && newMessage.sender_id !== user.id) {
+              // Window is hidden, mark as delivered
+              await updateMessageStatus(supabase, newMessage.id, 'delivered');
+              newMessage.status = 'delivered';
+
+              // Don't manually increment here - let the database trigger handle it
+              // The unread_counts realtime subscription will update the cache
             }
           } else {
             // For inactive conversations (different chat open), mark as delivered
@@ -104,16 +112,9 @@ export function useRealtime() {
               newMessage.status = 'delivered';
             }
 
-            // Increment unread count
-            queryClient.setQueryData<Conversation[]>(['conversations'], (old) => {
-              if (!old) return old;
-
-              return old.map((conv) =>
-                conv.id === newMessage.conversation_id
-                  ? { ...conv, unread_count: conv.unread_count + 1 }
-                  : conv
-              );
-            });
+            // Don't manually increment unread count here!
+            // The database trigger will update unread_counts table,
+            // and our unread_counts realtime subscription will update the cache
           }
 
           // Update conversation's last message and move to top
@@ -216,63 +217,102 @@ export function useRealtime() {
           const newRecord = payload.new as { user_id: string; conversation_id: string; count: number };
 
           if (user && newRecord && newRecord.user_id === user.id) {
+            // Use ref to get the CURRENT activeChatId (not stale closure value)
+            const currentActiveChatId = activeChatIdRef.current;
+            
+            // If this is the active conversation and window is visible, keep count at 0
+            const isActiveAndVisible = 
+              newRecord.conversation_id === currentActiveChatId && 
+              document.visibilityState === 'visible';
+
             queryClient.setQueryData<Conversation[]>(['conversations'], (old) => {
               if (!old) return old;
               return old.map((conv) =>
                 conv.id === newRecord.conversation_id
-                  ? { ...conv, unread_count: newRecord.count }
+                  ? { ...conv, unread_count: isActiveAndVisible ? 0 : newRecord.count }
                   : conv
               );
             });
+
+            // If active and visible, immediately reset in database too
+            if (isActiveAndVisible && newRecord.count > 0) {
+              await supabase
+                .from('unread_counts')
+                .update({ count: 0 })
+                .eq('user_id', user.id)
+                .eq('conversation_id', newRecord.conversation_id);
+            }
           }
         }
       )
       .subscribe();
 
-    // Subscribe to typing events for active conversation
-    let typingChannel: any = null;
-
-    if (activeChatId) {
-      typingChannel = supabase
-        .channel(`typing:${activeChatId}`)
-        .on('broadcast', { event: 'typing' }, async (payload) => {
-          const { userId, userName } = payload.payload;
-
-          // Get current user to filter out own typing events
-          const { data: { user } } = await supabase.auth.getUser();
-
-          // Don't show typing indicator for own messages
-          if (user && userId !== user.id) {
-            setUserTyping(activeChatId, userName);
-
-            // Clear existing timeout for this conversation
-            const existingTimeout = typingTimeoutRef.current.get(activeChatId);
-            if (existingTimeout) {
-              clearTimeout(existingTimeout);
-            }
-
-            // Hide typing indicator after 3 seconds
-            const timeout = setTimeout(() => {
-              clearUserTyping(activeChatId);
-              typingTimeoutRef.current.delete(activeChatId);
-            }, 3000);
-
-            typingTimeoutRef.current.set(activeChatId, timeout);
-          }
-        })
-        .subscribe();
-    }
-
-    // Cleanup subscriptions on unmount
+    // Cleanup main subscription on unmount
     return () => {
       supabase.removeChannel(channel);
-      if (typingChannel) {
-        supabase.removeChannel(typingChannel);
-      }
-
-      // Clear all typing timeouts
-      typingTimeoutRef.current.forEach((timeout) => clearTimeout(timeout));
-      typingTimeoutRef.current.clear();
     };
-  }, [activeChatId, queryClient, supabase, setUserTyping, clearUserTyping]);
+  }, [queryClient, supabase]); // Note: activeChatId removed - we use ref instead
+
+  // Separate effect for typing channel - this one needs to recreate when activeChatId changes
+  useEffect(() => {
+    if (!activeChatId) return;
+
+    const typingChannel = supabase
+      .channel(`typing:${activeChatId}`)
+      .on('broadcast', { event: 'typing' }, async (payload) => {
+        const { userId, userName } = payload.payload;
+
+        // Get current user to filter out own typing events
+        const { data: { user } } = await supabase.auth.getUser();
+
+        // Don't show typing indicator for own messages
+        if (user && userId !== user.id) {
+          setUserTyping(activeChatId, userName);
+
+          // Clear existing timeout for this conversation
+          const existingTimeout = typingTimeoutRef.current.get(activeChatId);
+          if (existingTimeout) {
+            clearTimeout(existingTimeout);
+          }
+
+          // Hide typing indicator after 2 seconds (fallback if stopTyping event doesn't arrive)
+          const timeout = setTimeout(() => {
+            clearUserTyping(activeChatId);
+            typingTimeoutRef.current.delete(activeChatId);
+          }, 2000);
+
+          typingTimeoutRef.current.set(activeChatId, timeout);
+        }
+      })
+      .on('broadcast', { event: 'stopTyping' }, async (payload) => {
+        const { userId } = payload.payload;
+
+        // Get current user to filter out own events
+        const { data: { user } } = await supabase.auth.getUser();
+
+        // Immediately hide typing indicator when stop event received
+        if (user && userId !== user.id) {
+          // Clear any pending timeout
+          const existingTimeout = typingTimeoutRef.current.get(activeChatId);
+          if (existingTimeout) {
+            clearTimeout(existingTimeout);
+            typingTimeoutRef.current.delete(activeChatId);
+          }
+          
+          clearUserTyping(activeChatId);
+        }
+      })
+      .subscribe();
+
+    // Cleanup typing subscription when activeChatId changes
+    return () => {
+      supabase.removeChannel(typingChannel);
+      // Clear typing timeouts for this conversation
+      const timeout = typingTimeoutRef.current.get(activeChatId);
+      if (timeout) {
+        clearTimeout(timeout);
+        typingTimeoutRef.current.delete(activeChatId);
+      }
+    };
+  }, [activeChatId, supabase, setUserTyping, clearUserTyping]);
 }

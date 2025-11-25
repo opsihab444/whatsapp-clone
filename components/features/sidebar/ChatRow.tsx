@@ -70,29 +70,29 @@ function ChatRowComponent({
       aria-label={`Chat with ${displayName}${unread_count > 0 ? `, ${unread_count} unread messages` : ''}`}
       aria-current={isActive ? 'true' : 'false'}
       className={cn(
-        'group flex items-center gap-3 px-3 py-0 h-[72px] cursor-pointer transition-colors duration-200 hover:bg-secondary/50 focus:outline-none focus:bg-secondary/50',
+        'group flex items-center gap-4 px-4 py-0 h-[80px] cursor-pointer transition-colors duration-200 hover:bg-secondary/50 focus:outline-none focus:bg-secondary/50',
         isActive && 'bg-secondary hover:bg-secondary'
       )}
     >
       {/* Avatar */}
       <div className="relative shrink-0">
-        <Avatar className="h-[49px] w-[49px]">
+        <Avatar className="h-[54px] w-[54px]">
           {other_user.avatar_url && (
             <AvatarImage src={other_user.avatar_url} alt={displayName} className="object-cover" />
           )}
-          <AvatarFallback className="bg-muted text-muted-foreground font-medium text-lg">{initials}</AvatarFallback>
+          <AvatarFallback className="bg-muted text-muted-foreground font-medium text-xl">{initials}</AvatarFallback>
         </Avatar>
       </div>
 
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col justify-center h-full border-b border-border/50 pr-2 group-last:border-none">
-        <div className="flex items-center justify-between mb-0.5">
-          <p className="text-[17px] text-foreground truncate leading-6">
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-[18px] text-foreground truncate leading-6 font-medium">
             {highlightText(displayName)}
           </p>
           {timestamp && (
             <span className={cn(
-              "text-[12px] leading-4 transition-colors",
+              "text-[13px] leading-4 transition-colors ml-2",
               unread_count > 0 ? "text-primary font-medium" : "text-muted-foreground/80"
             )}>
               {timestamp}
@@ -102,16 +102,16 @@ function ChatRowComponent({
 
         <div className="flex items-center justify-between gap-2">
           <p className={cn(
-            "text-[14px] truncate leading-5",
+            "text-[15px] truncate leading-5",
             unread_count > 0 ? "text-foreground font-medium" : "text-muted-foreground"
           )}>
-            {highlightText(truncate(lastMessage, 45))}
+            {highlightText(truncate(lastMessage, 40))}
           </p>
 
           {unread_count > 0 && (
             <div className="flex-shrink-0">
               <Badge
-                className="rounded-full h-[22px] min-w-[22px] px-1.5 flex items-center justify-center bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary border-none shadow-none"
+                className="rounded-full h-[24px] min-w-[24px] px-2 flex items-center justify-center bg-primary text-primary-foreground text-[13px] font-semibold hover:bg-primary border-none shadow-none"
                 aria-label={`${unread_count} unread messages`}
               >
                 {unread_count > 99 ? '99+' : unread_count}
