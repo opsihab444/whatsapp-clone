@@ -3,7 +3,7 @@
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import { getMessages } from '@/services/message.service';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { Message } from '@/types';
 
 const FIRST_PAGE_SIZE = 18;
@@ -18,7 +18,7 @@ const SUBSEQUENT_PAGE_SIZE = 8;
  * - When user leaves conversation, only first page remains in cache
  */
 export function useMessages(conversationId: string) {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const queryClient = useQueryClient();
 
   const query = useInfiniteQuery({
@@ -46,10 +46,10 @@ export function useMessages(conversationId: string) {
       return FIRST_PAGE_SIZE + (allPages.length - 1) * SUBSEQUENT_PAGE_SIZE;
     },
     initialPageParam: 0,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    staleTime: 1000 * 60 * 10, // 10 minutes - realtime handles updates
+    gcTime: 1000 * 60 * 30, // 30 minutes - keep in cache longer
     refetchOnWindowFocus: false,
-    refetchOnMount: false,
+    refetchOnMount: false, // Don't refetch if cached data exists
     refetchOnReconnect: true,
   });
 

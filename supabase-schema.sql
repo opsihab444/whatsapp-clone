@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS public.conversations (
   participant_2_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   last_message_content TEXT,
   last_message_time TIMESTAMPTZ,
+  last_message_sender_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   CONSTRAINT different_participants CHECK (participant_1_id != participant_2_id),
   CONSTRAINT ordered_participants CHECK (participant_1_id < participant_2_id)
@@ -176,7 +177,8 @@ BEGIN
   UPDATE public.conversations
   SET 
     last_message_content = NEW.content,
-    last_message_time = NEW.created_at
+    last_message_time = NEW.created_at,
+    last_message_sender_id = NEW.sender_id
   WHERE id = NEW.conversation_id;
   RETURN NEW;
 END;

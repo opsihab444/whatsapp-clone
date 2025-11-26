@@ -1,19 +1,32 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Message } from '@/types';
 import { cn, formatMessageTimeDisplay } from '@/lib/utils';
-import { Check, CheckCheck, MoreVertical, Edit, Trash2, Reply } from 'lucide-react';
+import { Check, CheckCheck, ChevronDown, Edit, Trash2, Reply, Copy, Info } from 'lucide-react';
 import { useUIStore } from '@/store/ui.store';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 interface MessageBubbleProps {
   message: Message;
   isOwnMessage: boolean;
   senderName?: string;
   showTail?: boolean; // Show tail only for first message in a group from same sender
+  // Facebook Messenger style seen indicator
+  showSeenAvatar?: boolean; // Show recipient avatar below message when seen
+  recipientAvatarUrl?: string | null;
+  recipientName?: string | null;
 }
 
-function MessageBubbleComponent({ message, isOwnMessage, senderName, showTail = true }: MessageBubbleProps) {
+function MessageBubbleComponent({ 
+  message, 
+  isOwnMessage, 
+  senderName, 
+  showTail = true,
+  showSeenAvatar = false,
+  recipientAvatarUrl,
+  recipientName,
+}: MessageBubbleProps) {
   const {
     id,
     content,
@@ -23,29 +36,77 @@ function MessageBubbleComponent({ message, isOwnMessage, senderName, showTail = 
     created_at,
   } = message;
 
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [openUpward, setOpenUpward] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
   // Get UI store actions
   const openEditModal = useUIStore((state) => state.openEditModal);
   const openDeleteModal = useUIStore((state) => state.openDeleteModal);
   const setReplyTo = useUIStore((state) => state.setReplyTo);
 
-  // Render status indicator for own messages - WhatsApp style
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsMenuOpen(false);
+      }
+    };
+
+    if (isMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isMenuOpen]);
+
+  // Render status indicator for own messages - Facebook Messenger style
+  // All status indicators shown below message, not inside bubble
   const renderStatusIndicator = () => {
+    // Don't show anything inside bubble - all status shown below
+    return null;
+  };
+
+  // Render status text below message (Facebook Messenger style)
+  const renderStatusBelow = () => {
     if (!isOwnMessage) return null;
 
-    switch (status) {
-      case 'queued':
-        return <span className="text-[10px] opacity-70">⏱️</span>;
-      case 'sending':
-        return <Check className="w-4 h-4 opacity-50" strokeWidth={2.5} />;
-      case 'sent':
-        return <Check className="w-4 h-4 opacity-60" strokeWidth={2.5} />;
-      case 'delivered':
-        return <CheckCheck className="w-4 h-4 opacity-60" strokeWidth={2.5} />;
-      case 'read':
-        return <CheckCheck className="w-4 h-4 text-[#53bdeb]" strokeWidth={2.5} />;
-      default:
-        return null;
+    // Show "Sending..." for queued/sending messages
+    if ((status === 'queued' || status === 'sending') && showSeenAvatar) {
+      return (
+        <div className="flex justify-end mt-1 mr-1">
+          <span className="text-[11px] text-muted-foreground">Sending...</span>
+        </div>
+      );
     }
+    
+    // If this message shows seen avatar, don't show "Sent" text
+    if (showSeenAvatar && status === 'read') {
+      return (
+        <div className="flex justify-end mt-1 mr-1">
+          <Avatar className="h-4 w-4">
+            <AvatarImage src={recipientAvatarUrl || undefined} className="object-cover" />
+            <AvatarFallback className="bg-muted text-muted-foreground text-[8px]">
+              {recipientName?.[0]?.toUpperCase() || '?'}
+            </AvatarFallback>
+          </Avatar>
+        </div>
+      );
+    }
+    
+    // Show "Sent" for sent/delivered messages (only on last message in group)
+    if ((status === 'sent' || status === 'delivered') && showSeenAvatar) {
+      return (
+        <div className="flex justify-end mt-1 mr-1">
+          <span className="text-[11px] text-muted-foreground">Sent</span>
+        </div>
+      );
+    }
+    
+    return null;
   };
 
   // Display content based on deleted status
@@ -69,6 +130,19 @@ function MessageBubbleComponent({ message, isOwnMessage, senderName, showTail = 
         senderName: senderName || 'Unknown',
       });
     }
+    setIsMenuOpen(false);
+  };
+
+  const handleCopy = async () => {
+    if (content) {
+      await navigator.clipboard.writeText(content);
+    }
+    setIsMenuOpen(false);
+  };
+
+  const handleMenuItemClick = (action: () => void) => {
+    action();
+    setIsMenuOpen(false);
   };
 
   return (
@@ -118,7 +192,7 @@ function MessageBubbleComponent({ message, isOwnMessage, senderName, showTail = 
             )}
           >
             {/* Message content with space for timestamp */}
-            <div className="whitespace-pre-wrap break-words pr-[75px] pb-[3px] min-h-[22px]">
+            <div className="whitespace-pre-wrap break-words break-all pr-[75px] pb-[3px] min-h-[22px]">
               {displayContent}
             </div>
 
@@ -145,75 +219,111 @@ function MessageBubbleComponent({ message, isOwnMessage, senderName, showTail = 
           </div>
         </div>
 
-        {/* Context menu - inline menu without portal */}
+        {/* WhatsApp style dropdown arrow - appears on hover inside bubble */}
         {!is_deleted && (
-          <div className={cn(
-            "absolute top-0 z-20",
-            isOwnMessage ? "-left-8" : "-right-8"
-          )}>
-            <div className="relative group/menu">
-              <button
-                className="h-6 w-6 inline-flex items-center justify-center rounded-full bg-secondary/50 text-muted-foreground hover:bg-secondary hover:text-foreground shadow-sm backdrop-blur-sm opacity-0 group-hover/bubble:opacity-100 transition-opacity"
-                aria-label="Message options"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  const menu = e.currentTarget.nextElementSibling as HTMLElement;
-                  if (menu) {
-                    menu.classList.toggle('hidden');
-                  }
-                }}
-                onBlur={(e) => {
-                  setTimeout(() => {
-                    const menu = e.currentTarget.nextElementSibling as HTMLElement;
-                    if (menu && !menu.contains(document.activeElement)) {
-                      menu.classList.add('hidden');
-                    }
-                  }, 200);
-                }}
-              >
-                <MoreVertical className="h-3.5 w-3.5" />
-              </button>
+          <div 
+            ref={menuRef}
+            className={cn(
+              "absolute top-1 z-20",
+              isOwnMessage ? "right-2" : "right-2"
+            )}
+          >
+            {/* Dropdown arrow button */}
+            <button
+              className={cn(
+                "h-5 w-5 inline-flex items-center justify-center rounded-full transition-all duration-200",
+                isMenuOpen 
+                  ? "opacity-100 bg-black/20" 
+                  : "opacity-0 group-hover/bubble:opacity-100 hover:bg-black/20",
+                isOwnMessage ? "text-white/80" : "text-white/80"
+              )}
+              aria-label="Message options"
+              ref={buttonRef}
+              onClick={(e) => {
+                e.stopPropagation();
+                // Check if there's enough space below
+                if (buttonRef.current) {
+                  const rect = buttonRef.current.getBoundingClientRect();
+                  const spaceBelow = window.innerHeight - rect.bottom;
+                  // Menu height is approximately 200px for own messages, 150px for others
+                  const menuHeight = isOwnMessage ? 220 : 150;
+                  setOpenUpward(spaceBelow < menuHeight);
+                }
+                setIsMenuOpen(!isMenuOpen);
+              }}
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
 
-              {/* Inline dropdown menu */}
+            {/* WhatsApp style dropdown menu */}
+            {isMenuOpen && (
               <div
                 className={cn(
-                  "hidden absolute top-full mt-1 min-w-[10rem] overflow-hidden rounded-lg border border-border bg-popover p-1 text-popover-foreground shadow-lg backdrop-blur-sm bg-opacity-95",
+                  "absolute min-w-[160px] overflow-hidden rounded-md bg-[#233138] shadow-xl z-50 py-2",
+                  openUpward ? "bottom-full mb-1" : "top-full mt-1",
                   isOwnMessage ? "right-0" : "left-0"
                 )}
-                onClick={(e) => e.currentTarget.classList.add('hidden')}
               >
+                {/* Message Info */}
                 <div
                   role="menuitem"
-                  className="relative flex cursor-pointer select-none items-center rounded-md px-3 py-2 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
+                  className="flex cursor-pointer items-center px-4 py-2.5 text-sm text-[#e9edef] hover:bg-[#182229] transition-colors"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <Info className="mr-4 h-4 w-4 text-[#aebac1]" />
+                  Message info
+                </div>
+
+                {/* Reply */}
+                <div
+                  role="menuitem"
+                  className="flex cursor-pointer items-center px-4 py-2.5 text-sm text-[#e9edef] hover:bg-[#182229] transition-colors"
                   onClick={handleReply}
                 >
-                  <Reply className="mr-2 h-4 w-4" />
+                  <Reply className="mr-4 h-4 w-4 text-[#aebac1]" />
                   Reply
                 </div>
+
+                {/* Copy */}
+                <div
+                  role="menuitem"
+                  className="flex cursor-pointer items-center px-4 py-2.5 text-sm text-[#e9edef] hover:bg-[#182229] transition-colors"
+                  onClick={handleCopy}
+                >
+                  <Copy className="mr-4 h-4 w-4 text-[#aebac1]" />
+                  Copy
+                </div>
+
+                {/* Edit - only for own messages */}
                 {isOwnMessage && (
-                  <>
-                    <div
-                      role="menuitem"
-                      className="relative flex cursor-pointer select-none items-center rounded-md px-3 py-2 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground"
-                      onClick={handleEdit}
-                    >
-                      <Edit className="mr-2 h-4 w-4" />
-                      Edit
-                    </div>
-                    <div
-                      role="menuitem"
-                      className="relative flex cursor-pointer select-none items-center rounded-md px-3 py-2 text-sm outline-none transition-colors hover:bg-accent hover:text-accent-foreground text-destructive"
-                      onClick={handleDelete}
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete
-                    </div>
-                  </>
+                  <div
+                    role="menuitem"
+                    className="flex cursor-pointer items-center px-4 py-2.5 text-sm text-[#e9edef] hover:bg-[#182229] transition-colors"
+                    onClick={() => handleMenuItemClick(handleEdit)}
+                  >
+                    <Edit className="mr-4 h-4 w-4 text-[#aebac1]" />
+                    Edit
+                  </div>
+                )}
+
+                {/* Delete - only for own messages */}
+                {isOwnMessage && (
+                  <div
+                    role="menuitem"
+                    className="flex cursor-pointer items-center px-4 py-2.5 text-sm text-[#e9edef] hover:bg-[#182229] transition-colors border-t border-[#3b4a54] mt-1 pt-2.5"
+                    onClick={() => handleMenuItemClick(handleDelete)}
+                  >
+                    <Trash2 className="mr-4 h-4 w-4 text-[#ea0038]" />
+                    <span className="text-[#ea0038]">Delete</span>
+                  </div>
                 )}
               </div>
-            </div>
+            )}
           </div>
         )}
+
+        {/* Facebook Messenger style status below message */}
+        {renderStatusBelow()}
       </div>
     </div>
   );
@@ -231,7 +341,10 @@ export const MessageBubble = React.memo(MessageBubbleComponent, (prevProps, next
     prevProps.message.created_at === nextProps.message.created_at &&
     prevProps.isOwnMessage === nextProps.isOwnMessage &&
     prevProps.senderName === nextProps.senderName &&
-    prevProps.showTail === nextProps.showTail
+    prevProps.showTail === nextProps.showTail &&
+    prevProps.showSeenAvatar === nextProps.showSeenAvatar &&
+    prevProps.recipientAvatarUrl === nextProps.recipientAvatarUrl &&
+    prevProps.recipientName === nextProps.recipientName
   );
 });
 

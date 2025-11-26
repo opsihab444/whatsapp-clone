@@ -1,7 +1,7 @@
 // Core type definitions for the WhatsApp clone application
 
 export type MessageStatus = 'queued' | 'sending' | 'sent' | 'delivered' | 'read';
-export type MessageType = 'text' | 'image';
+export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'file';
 
 export interface Profile {
   id: string;
@@ -17,6 +17,7 @@ export interface Conversation {
   participant_2_id: string;
   last_message_content: string | null;
   last_message_time: string | null;
+  last_message_sender_id: string | null;
   created_at: string;
   other_user: Profile;
   unread_count: number;
@@ -44,8 +45,42 @@ export interface OptimisticMessage extends Omit<Message, 'id'> {
   optimistic: true;
 }
 
+// Group types
+export interface Group {
+  id: string;
+  name: string;
+  description: string | null;
+  avatar_url: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  member_count?: number;
+}
+
+export interface GroupMember {
+  group_id: string;
+  user_id: string;
+  role: 'admin' | 'member';
+  joined_at: string;
+  profile?: Profile;
+}
+
+export interface GroupConversation {
+  id: string;
+  group: Group;
+  last_message_content: string | null;
+  last_message_time: string | null;
+  last_message_sender_id: string | null;
+  last_message_sender_name: string | null;
+  unread_count: number;
+}
+
+export interface GroupMessage extends Omit<Message, 'conversation_id'> {
+  group_id: string;
+}
+
 // Service result types
-export type ServiceResult<T> = 
+export type ServiceResult<T> =
   | { success: true; data: T }
   | { success: false; error: ServiceError };
 

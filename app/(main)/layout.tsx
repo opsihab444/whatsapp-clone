@@ -6,7 +6,7 @@ import { SidebarHeader } from '@/components/features/sidebar/SidebarHeader';
 import { ChatList } from '@/components/features/sidebar/ChatList';
 import { NetworkStatus } from '@/components/NetworkStatus';
 import { UserSearchResult } from '@/components/features/sidebar/UserSearchResult';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useUIStore } from '@/store/ui.store';
 import { createClient } from '@/lib/supabase/client';
@@ -14,6 +14,10 @@ import { Menu, ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { searchUserByEmail, getOrCreateConversation } from '@/services/chat.service';
 import { useQueryClient } from '@tanstack/react-query';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { CreateGroupModal } from '@/components/features/group/CreateGroupModal';
+import { GroupRow } from '@/components/features/group/GroupRow';
+import { useGroups } from '@/hooks/useGroups';
 
 export default function MainLayout({
   children,
@@ -21,17 +25,26 @@ export default function MainLayout({
   children: React.ReactNode;
 }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [userInfo, setUserInfo] = useState<{
-    email: string;
-    name: string | null;
-    avatar: string | null;
-  } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<'all' | 'groups'>('all');
   const router = useRouter();
   const pathname = usePathname();
-  const setActiveChatId = useUIStore((state) => state.setActiveChatId);
-  const supabase = createClient();
+  const { setActiveChatId, setActiveGroupId } = useUIStore();
+  const supabase = useMemo(() => createClient(), []);
   const queryClient = useQueryClient();
+
+  // Use cached current user hook instead of manual fetch
+  const { data: currentUser } = useCurrentUser();
+
+  // Memoize user info to prevent unnecessary re-renders
+  const userInfo = useMemo(() => {
+    if (!currentUser) return null;
+    return {
+      email: currentUser.email || '',
+      name: currentUser.name || null,
+      avatar: currentUser.avatar || null,
+    };
+  }, [currentUser]);
 
   const toast = (props: { title: string; description?: string; variant?: 'default' | 'destructive' }) => {
     if (props.variant === 'destructive') {
@@ -41,42 +54,28 @@ export default function MainLayout({
     }
   };
 
-  // Extract active chat ID from pathname
+  // Extract active chat/group ID from pathname
   const activeChatId = pathname.match(/\/c\/([^/]+)/)?.[1] || null;
+  const activeGroupId = pathname.match(/\/g\/([^/]+)/)?.[1] || null;
+
+  // Fetch groups
+  const { groups } = useGroups(searchQuery);
 
   // Close sidebar when navigating to a chat on mobile
   useEffect(() => {
-    if (activeChatId) {
+    if (activeChatId || activeGroupId) {
       setIsSidebarOpen(false);
     }
-  }, [activeChatId]);
-
-  // Fetch current user info
-  useEffect(() => {
-    const fetchUserInfo = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        // Get user profile
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('full_name, avatar_url')
-          .eq('id', user.id)
-          .single();
-
-        setUserInfo({
-          email: user.email || '',
-          name: profile?.full_name || null,
-          avatar: profile?.avatar_url || null,
-        });
-      }
-    };
-
-    fetchUserInfo();
-  }, [supabase]);
+  }, [activeChatId, activeGroupId]);
 
   const handleChatSelect = (chatId: string) => {
     setActiveChatId(chatId);
     router.push(`/c/${chatId}`);
+  };
+
+  const handleGroupSelect = (groupId: string) => {
+    setActiveGroupId(groupId);
+    router.push(`/g/${groupId}`);
   };
 
   const [searchResult, setSearchResult] = useState<{
@@ -163,9 +162,10 @@ export default function MainLayout({
           Skip to main content
         </a>
         <NetworkStatus />
+        <CreateGroupModal />
         <div className="flex h-screen overflow-hidden bg-background">
-          {/* Mobile menu button - only visible on mobile when chat is open */}
-          {activeChatId && (
+          {/* Mobile menu button - only visible on mobile when chat/group is open */}
+          {(activeChatId || activeGroupId) && (
             <Button
               variant="ghost"
               size="icon"
@@ -181,7 +181,7 @@ export default function MainLayout({
           <div
             className={`
               w-full md:w-[420px] border-r border-border flex flex-col bg-background
-              ${activeChatId ? 'hidden md:flex' : 'flex'}
+              ${(activeChatId || activeGroupId) ? 'hidden md:flex' : 'flex'}
               ${isSidebarOpen ? '!flex absolute inset-0 z-40' : ''}
             `}
           >
@@ -192,6 +192,8 @@ export default function MainLayout({
               userEmail={userInfo?.email}
               userName={userInfo?.name}
               userAvatar={userInfo?.avatar}
+              activeFilter={activeFilter}
+              onFilterChange={setActiveFilter}
             />
             <div className="flex-1 overflow-hidden relative">
               {isSearching ? (
@@ -216,12 +218,50 @@ export default function MainLayout({
                     </button>
                   </div>
                 </div>
+              ) : activeFilter === 'groups' ? (
+                <div className="h-full overflow-y-auto">
+                  {groups && groups.length > 0 ? (
+                    groups.map((group) => (
+                      <GroupRow
+                        key={group.id}
+                        group={group}
+                        isActive={activeGroupId === group.id}
+                        onClick={() => handleGroupSelect(group.id)}
+                        currentUserId={currentUser?.id}
+                      />
+                    ))
+                  ) : (
+                    <div className="flex items-center justify-center h-full p-4">
+                      <div className="text-center">
+                        <p className="text-sm font-medium text-muted-foreground mb-1">No groups yet</p>
+                        <p className="text-xs text-muted-foreground">Create a group to get started</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               ) : (
-                <ChatList
-                  searchQuery={searchQuery}
-                  activeChatId={activeChatId || undefined}
-                  onChatSelect={handleChatSelect}
-                />
+                <div className="h-full overflow-y-auto">
+                  {/* Groups Section in All tab */}
+                  {groups && groups.length > 0 && (
+                    <div>
+                      {groups.map((group) => (
+                        <GroupRow
+                          key={group.id}
+                          group={group}
+                          isActive={activeGroupId === group.id}
+                          onClick={() => handleGroupSelect(group.id)}
+                          currentUserId={currentUser?.id}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {/* Chats */}
+                  <ChatList
+                    searchQuery={searchQuery}
+                    activeChatId={activeChatId || undefined}
+                    onChatSelect={handleChatSelect}
+                  />
+                </div>
               )}
             </div>
           </div>
@@ -230,13 +270,10 @@ export default function MainLayout({
           <div
             id="main-content"
             className={`
-              flex-1 flex flex-col overflow-hidden bg-chat-background relative
-              ${!activeChatId ? 'hidden md:flex' : 'flex'}
+              flex-1 flex flex-col overflow-hidden relative whatsapp-chat-bg
+              ${!(activeChatId || activeGroupId) ? 'hidden md:flex' : 'flex'}
             `}
           >
-            {/* Background Pattern Overlay (Optional, can be added later) */}
-            <div className="absolute inset-0 opacity-[0.06] pointer-events-none bg-[url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png')] bg-repeat z-0" />
-
             <div className="relative z-10 flex-1 flex flex-col h-full">
               {children}
             </div>

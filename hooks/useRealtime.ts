@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
+import { getCachedUser } from '@/lib/supabase/cached-auth';
 import { useUIStore } from '@/store/ui.store';
 import { Message, Conversation } from '@/types';
 import { updateMessageStatus } from '@/services/message.service';
@@ -23,7 +24,7 @@ export function useRealtime() {
   const activeChatId = useUIStore((state) => state.activeChatId);
   const setUserTyping = useUIStore((state) => state.setUserTyping);
   const clearUserTyping = useUIStore((state) => state.clearUserTyping);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const typingTimeoutRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   
   // Use ref to always have the latest activeChatId in callbacks (avoid stale closure)
@@ -54,8 +55,8 @@ export function useRealtime() {
           const isActiveConversation = newMessage.conversation_id === currentActiveChatId;
           const isWindowVisible = document.visibilityState === 'visible';
 
-          // Get current user
-          const { data: { user } } = await supabase.auth.getUser();
+          // Get current user (cached)
+          const user = await getCachedUser(supabase);
 
           // ALWAYS add message to its conversation's cache (so it's there when user switches)
           queryClient.setQueryData<{ pages: Message[][]; pageParams: number[] }>(
@@ -63,14 +64,40 @@ export function useRealtime() {
             (old) => {
               if (!old) return old;
 
-              // Check if message already exists (to prevent duplicates from optimistic updates)
-              const messageExists = old.pages.some((page) =>
+              // Check if message already exists by ID
+              const messageExistsById = old.pages.some((page) =>
                 page.some((msg) => msg.id === newMessage.id)
               );
 
-              if (messageExists) {
-                // Message already exists, just return old data
+              if (messageExistsById) {
                 return old;
+              }
+
+              // Check if this is a temp message that needs ID update (same content + sender + close timestamp)
+              // This handles the case where WebSocket broadcast arrived before DB event
+              let foundTempMessage = false;
+              const updatedPages = old.pages.map((page) =>
+                page.map((msg) => {
+                  // Match by content, sender, and temp ID prefix
+                  if (
+                    msg.id.startsWith('temp-') &&
+                    msg.content === newMessage.content &&
+                    msg.sender_id === newMessage.sender_id
+                  ) {
+                    foundTempMessage = true;
+                    // Replace temp message with real one, but KEEP original timestamp!
+                    return {
+                      ...newMessage,
+                      created_at: msg.created_at,
+                      updated_at: msg.updated_at,
+                    };
+                  }
+                  return msg;
+                })
+              );
+
+              if (foundTempMessage) {
+                return { ...old, pages: updatedPages };
               }
 
               // Add the new message to the first page (most recent messages)
@@ -122,15 +149,26 @@ export function useRealtime() {
             if (!old) return old;
 
             // Update the conversation with new last message info
-            const updated = old.map((conv) =>
-              conv.id === newMessage.conversation_id
-                ? {
-                  ...conv,
-                  last_message_content: newMessage.content,
-                  last_message_time: newMessage.created_at,
-                }
-                : conv
-            );
+            const updated = old.map((conv) => {
+              if (conv.id !== newMessage.conversation_id) return conv;
+
+              // If this is our own message and content matches (optimistic update already done),
+              // keep the original timestamp to prevent time jump
+              const isOwnOptimisticUpdate =
+                user &&
+                newMessage.sender_id === user.id &&
+                conv.last_message_content === newMessage.content;
+
+              return {
+                ...conv,
+                last_message_content: newMessage.content,
+                // Keep original timestamp if optimistic update already happened
+                last_message_time: isOwnOptimisticUpdate
+                  ? conv.last_message_time
+                  : newMessage.created_at,
+                last_message_sender_id: newMessage.sender_id,
+              };
+            });
 
             // Sort by last_message_time DESC (most recent first)
             return updated.sort((a, b) => {
@@ -196,7 +234,7 @@ export function useRealtime() {
         },
         async (payload) => {
           const newConversation = payload.new as Conversation;
-          const { data: { user } } = await supabase.auth.getUser();
+          const user = await getCachedUser(supabase);
 
           if (user && (newConversation.participant_1_id === user.id || newConversation.participant_2_id === user.id)) {
             // Invalidate conversations query to fetch the new conversation with full profile data
@@ -213,7 +251,7 @@ export function useRealtime() {
           table: 'unread_counts',
         },
         async (payload) => {
-          const { data: { user } } = await supabase.auth.getUser();
+          const user = await getCachedUser(supabase);
           const newRecord = payload.new as { user_id: string; conversation_id: string; count: number };
 
           if (user && newRecord && newRecord.user_id === user.id) {
@@ -253,66 +291,215 @@ export function useRealtime() {
     };
   }, [queryClient, supabase]); // Note: activeChatId removed - we use ref instead
 
-  // Separate effect for typing channel - this one needs to recreate when activeChatId changes
+  // Separate effect for chat channel WebSocket messages - recreate when activeChatId changes
   useEffect(() => {
     if (!activeChatId) return;
 
-    const typingChannel = supabase
-      .channel(`typing:${activeChatId}`)
-      .on('broadcast', { event: 'typing' }, async (payload) => {
-        const { userId, userName } = payload.payload;
+    // Listen for WebSocket broadcast messages (instant delivery - no POST request)
+    const chatChannel = supabase
+      .channel(`chat:${activeChatId}`)
+      .on('broadcast', { event: 'new_message' }, async (payload) => {
+        const { tempId, content, senderId, senderName, timestamp } = payload.payload;
 
-        // Get current user to filter out own typing events
-        const { data: { user } } = await supabase.auth.getUser();
+        // Get current user (cached)
+        const user = await getCachedUser(supabase);
 
-        // Don't show typing indicator for own messages
-        if (user && userId !== user.id) {
-          setUserTyping(activeChatId, userName);
+        // Don't process own messages (sender already has it in cache)
+        if (user && senderId === user.id) return;
 
-          // Clear existing timeout for this conversation
-          const existingTimeout = typingTimeoutRef.current.get(activeChatId);
-          if (existingTimeout) {
-            clearTimeout(existingTimeout);
+        // Create message object for receiver
+        const receivedMessage: Message = {
+          id: tempId, // Will be replaced when DB event comes
+          conversation_id: activeChatId,
+          sender_id: senderId,
+          content,
+          type: 'text',
+          media_url: null,
+          media_width: null,
+          media_height: null,
+          status: 'delivered',
+          is_edited: false,
+          is_deleted: false,
+          created_at: timestamp,
+          updated_at: timestamp,
+        };
+
+        // Instantly add to cache (receiver sees message immediately!)
+        queryClient.setQueryData<{ pages: Message[][]; pageParams: number[] }>(
+          ['messages', activeChatId],
+          (old) => {
+            if (!old) return old;
+
+            // Check if message already exists
+            const messageExists = old.pages.some((page) =>
+              page.some((msg) => msg.id === tempId || msg.content === content && msg.sender_id === senderId)
+            );
+
+            if (messageExists) return old;
+
+            return {
+              ...old,
+              pages: [[receivedMessage, ...old.pages[0]], ...old.pages.slice(1)],
+            };
           }
+        );
 
-          // Hide typing indicator after 2 seconds (fallback if stopTyping event doesn't arrive)
-          const timeout = setTimeout(() => {
-            clearUserTyping(activeChatId);
-            typingTimeoutRef.current.delete(activeChatId);
-          }, 2000);
-
-          typingTimeoutRef.current.set(activeChatId, timeout);
-        }
-      })
-      .on('broadcast', { event: 'stopTyping' }, async (payload) => {
-        const { userId } = payload.payload;
-
-        // Get current user to filter out own events
-        const { data: { user } } = await supabase.auth.getUser();
-
-        // Immediately hide typing indicator when stop event received
-        if (user && userId !== user.id) {
-          // Clear any pending timeout
-          const existingTimeout = typingTimeoutRef.current.get(activeChatId);
-          if (existingTimeout) {
-            clearTimeout(existingTimeout);
-            typingTimeoutRef.current.delete(activeChatId);
-          }
-          
-          clearUserTyping(activeChatId);
-        }
+        // Update conversation sidebar
+        queryClient.setQueryData<Conversation[]>(['conversations'], (old) => {
+          if (!old) return old;
+          const updated = old.map((conv) =>
+            conv.id === activeChatId
+              ? {
+                  ...conv,
+                  last_message_content: content,
+                  last_message_time: timestamp,
+                  last_message_sender_id: senderId,
+                }
+              : conv
+          );
+          return updated.sort((a, b) => {
+            const timeA = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
+            const timeB = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
+            return timeB - timeA;
+          });
+        });
       })
       .subscribe();
 
-    // Cleanup typing subscription when activeChatId changes
+    // Cleanup chat channel when activeChatId changes
     return () => {
-      supabase.removeChannel(typingChannel);
-      // Clear typing timeouts for this conversation
-      const timeout = typingTimeoutRef.current.get(activeChatId);
-      if (timeout) {
-        clearTimeout(timeout);
-        typingTimeoutRef.current.delete(activeChatId);
-      }
+      supabase.removeChannel(chatChannel);
     };
-  }, [activeChatId, supabase, setUserTyping, clearUserTyping]);
+  }, [activeChatId, supabase, queryClient]);
+
+  // Track subscribed conversation IDs to avoid duplicate subscriptions
+  const subscribedConvIdsRef = useRef<Set<string>>(new Set());
+  const typingChannelsRef = useRef<Map<string, ReturnType<typeof supabase.channel>>>(new Map());
+
+  // Subscribe to typing events for ALL conversations (so sidebar shows typing for any chat)
+  useEffect(() => {
+    // Subscribe to cache changes for conversations
+    const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
+      if (event.query.queryKey[0] !== 'conversations') return;
+
+      const conversations = queryClient.getQueryData<Conversation[]>(['conversations']);
+      if (!conversations || conversations.length === 0) return;
+
+      // Find new conversations that need subscription
+      conversations.forEach((conv) => {
+        if (subscribedConvIdsRef.current.has(conv.id)) return;
+
+        // Mark as subscribed
+        subscribedConvIdsRef.current.add(conv.id);
+
+        const typingChannel = supabase
+          .channel(`typing:${conv.id}`)
+          .on('broadcast', { event: 'typing' }, async (payload) => {
+            const { userId, userName } = payload.payload;
+
+            // Get current user to filter out own typing events (cached)
+            const user = await getCachedUser(supabase);
+
+            // Don't show typing indicator for own messages
+            if (user && userId !== user.id) {
+              setUserTyping(conv.id, userName);
+
+              // Clear existing timeout for this conversation
+              const existingTimeout = typingTimeoutRef.current.get(conv.id);
+              if (existingTimeout) {
+                clearTimeout(existingTimeout);
+              }
+
+              // Hide typing indicator after 2 seconds (fallback if stopTyping event doesn't arrive)
+              const timeout = setTimeout(() => {
+                clearUserTyping(conv.id);
+                typingTimeoutRef.current.delete(conv.id);
+              }, 2000);
+
+              typingTimeoutRef.current.set(conv.id, timeout);
+            }
+          })
+          .on('broadcast', { event: 'stopTyping' }, async (payload) => {
+            const { userId } = payload.payload;
+
+            // Get current user to filter out own events (cached)
+            const user = await getCachedUser(supabase);
+
+            // Immediately hide typing indicator when stop event received
+            if (user && userId !== user.id) {
+              // Clear any pending timeout
+              const existingTimeout = typingTimeoutRef.current.get(conv.id);
+              if (existingTimeout) {
+                clearTimeout(existingTimeout);
+                typingTimeoutRef.current.delete(conv.id);
+              }
+
+              clearUserTyping(conv.id);
+            }
+          })
+          .subscribe();
+
+        typingChannelsRef.current.set(conv.id, typingChannel);
+      });
+    });
+
+    // Initial subscription for existing conversations
+    const conversations = queryClient.getQueryData<Conversation[]>(['conversations']);
+    if (conversations && conversations.length > 0) {
+      conversations.forEach((conv) => {
+        if (subscribedConvIdsRef.current.has(conv.id)) return;
+
+        subscribedConvIdsRef.current.add(conv.id);
+
+        const typingChannel = supabase
+          .channel(`typing:${conv.id}`)
+          .on('broadcast', { event: 'typing' }, async (payload) => {
+            const { userId, userName } = payload.payload;
+            const user = await getCachedUser(supabase);
+
+            if (user && userId !== user.id) {
+              setUserTyping(conv.id, userName);
+
+              const existingTimeout = typingTimeoutRef.current.get(conv.id);
+              if (existingTimeout) clearTimeout(existingTimeout);
+
+              const timeout = setTimeout(() => {
+                clearUserTyping(conv.id);
+                typingTimeoutRef.current.delete(conv.id);
+              }, 2000);
+
+              typingTimeoutRef.current.set(conv.id, timeout);
+            }
+          })
+          .on('broadcast', { event: 'stopTyping' }, async (payload) => {
+            const { userId } = payload.payload;
+            const user = await getCachedUser(supabase);
+
+            if (user && userId !== user.id) {
+              const existingTimeout = typingTimeoutRef.current.get(conv.id);
+              if (existingTimeout) {
+                clearTimeout(existingTimeout);
+                typingTimeoutRef.current.delete(conv.id);
+              }
+              clearUserTyping(conv.id);
+            }
+          })
+          .subscribe();
+
+        typingChannelsRef.current.set(conv.id, typingChannel);
+      });
+    }
+
+    // Cleanup
+    return () => {
+      unsubscribe();
+      typingChannelsRef.current.forEach((channel) => {
+        supabase.removeChannel(channel);
+      });
+      typingChannelsRef.current.clear();
+      subscribedConvIdsRef.current.clear();
+      typingTimeoutRef.current.forEach((timeout) => clearTimeout(timeout));
+      typingTimeoutRef.current.clear();
+    };
+  }, [queryClient, supabase, setUserTyping, clearUserTyping]);
 }

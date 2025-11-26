@@ -1,19 +1,19 @@
 'use client';
 
-import React, { useState, useRef, useEffect, KeyboardEvent, useCallback } from 'react';
+import { useState, useRef, useEffect, KeyboardEvent, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Send, Plus, Smile, Mic } from 'lucide-react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { sendMessage } from '@/services/message.service';
+import { useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
-import { showErrorWithRetry, showServiceError, showInfoToast } from '@/lib/toast.utils';
+import { showErrorWithRetry, showInfoToast } from '@/lib/toast.utils';
 import { addToQueue } from '@/lib/offline-queue';
+import { Message } from '@/types';
 
 interface InputAreaProps {
   conversationId: string;
-  currentUserId: string;
-  currentUserName: string;
+  currentUserId?: string;
+  currentUserName?: string;
 }
 
 export function InputArea({ conversationId, currentUserId, currentUserName }: InputAreaProps) {
@@ -70,143 +70,160 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
     };
   }, []);
 
-  // Send message mutation with optimistic updates
-  const sendMessageMutation = useMutation({
-    mutationFn: async (content: string) => {
-      const result = await sendMessage(supabase, {
-        conversation_id: conversationId,
-        content,
-        type: 'text',
-      });
+  // WebSocket-based message sending (like Messenger/WhatsApp)
+  // No POST request - uses persistent WebSocket connection
+  const sendMessageViaWebSocket = useCallback(async (content: string) => {
+    // This function is only called after currentUserId check in handleSend
+    if (!currentUserId) return;
+    
+    const trimmedContent = content.trim();
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+    const timestamp = new Date().toISOString();
 
-      if (!result.success) {
-        throw new Error(result.error.message);
-      }
+    // Create optimistic message
+    const optimisticMessage: Message = {
+      id: tempId,
+      conversation_id: conversationId,
+      sender_id: currentUserId,
+      content: trimmedContent,
+      type: 'text',
+      media_url: null,
+      media_width: null,
+      media_height: null,
+      status: 'sending',
+      is_edited: false,
+      is_deleted: false,
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
 
-      return result.data;
-    },
-    onMutate: async (content: string) => {
-      // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ['messages', conversationId] });
-
-      // Snapshot the previous value
-      const previousMessages = queryClient.getQueryData(['messages', conversationId]);
-
-      // Create optimistic message with temporary ID
-      const optimisticMessage = {
-        id: `temp-${Date.now()}`,
-        conversation_id: conversationId,
-        sender_id: currentUserId,
-        content: content.trim(),
-        type: 'text' as const,
-        media_url: null,
-        media_width: null,
-        media_height: null,
-        status: 'sending' as any, // Temporary status
-        is_edited: false,
-        is_deleted: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+    // 1. Instantly add to local cache (UI updates immediately)
+    queryClient.setQueryData(['messages', conversationId], (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        pages: old.pages.map((page: any[], index: number) =>
+          index === 0 ? [optimisticMessage, ...page] : page
+        ),
       };
+    });
 
-      // Optimistically update the cache
-      queryClient.setQueryData(['messages', conversationId], (old: any) => {
-        if (!old) return old;
-
-        return {
-          ...old,
-          pages: old.pages.map((page: any[], index: number) =>
-            // Add to the first page (newest messages)
-            index === 0 ? [optimisticMessage, ...page] : page
-          ),
-        };
-      });
-
-      // Return context with previous data for rollback
-      return { previousMessages };
-    },
-    onSuccess: (data) => {
-      // Replace optimistic message with real message from server
-      queryClient.setQueryData(['messages', conversationId], (old: any) => {
-        if (!old) return old;
-
-        // Remove temp message and add real message if not already present
-        const updatedPages = old.pages.map((page: any[]) => {
-          // Filter out temp messages
-          const withoutTemp = page.filter((msg: any) => !msg.id.startsWith('temp-'));
-
-          // Check if real message already exists
-          const realMessageExists = withoutTemp.some((msg: any) => msg.id === data.id);
-
-          // If real message doesn't exist, add it at the beginning
-          if (!realMessageExists && page === old.pages[0]) {
-            return [data, ...withoutTemp];
+    // 2. Update conversations list instantly
+    queryClient.setQueryData(['conversations'], (old: any) => {
+      if (!old) return old;
+      const updated = old.map((conv: any) =>
+        conv.id === conversationId
+          ? {
+            ...conv,
+            last_message_content: trimmedContent,
+            last_message_time: timestamp,
+            last_message_sender_id: currentUserId,
           }
-
-          return withoutTemp;
-        });
-
-        return {
-          ...old,
-          pages: updatedPages,
-        };
-      });
-
-
-      // Re-enable input and maintain focus
-      setIsSending(false);
-      textareaRef.current?.focus();
-
-      // Optimistically update conversations list to prevent jumping
-      queryClient.setQueryData(['conversations'], (old: any) => {
-        if (!old) return old;
-
-        // Update the conversation with new last message info
-        const updated = old.map((conv: any) =>
-          conv.id === conversationId
-            ? {
-              ...conv,
-              last_message_content: data.content,
-              last_message_time: data.created_at,
-            }
-            : conv
-        );
-
-        // Sort by last_message_time DESC (most recent first)
-        return updated.sort((a: any, b: any) => {
-          const timeA = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
-          const timeB = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
-          return timeB - timeA;
-        });
-      });
-    },
-    onError: (error: Error, content, context) => {
-      // Rollback to previous state on error
-      if (context?.previousMessages) {
-        queryClient.setQueryData(['messages', conversationId], context.previousMessages);
-      }
-
-      setIsSending(false);
-
-      // Restore the message content so user doesn't lose it
-      setMessage(content);
-
-      // Show error with retry option
-      showErrorWithRetry(
-        'Failed to send message. Please try again.',
-        () => {
-          setIsSending(true);
-          sendMessageMutation.mutate(content);
-        },
-        'Retry'
+          : conv
       );
-    },
-  });
+      return updated.sort((a: any, b: any) => {
+        const timeA = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
+        const timeB = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
+        return timeB - timeA;
+      });
+    });
+
+    // 3. Send via WebSocket broadcast (instant delivery to other user)
+    // This is the "magic" - just WebSocket frame, no waiting!
+    const messageChannel = supabase.channel(`chat:${conversationId}`);
+    messageChannel.subscribe();
+
+    messageChannel.send({
+      type: 'broadcast',
+      event: 'new_message',
+      payload: {
+        tempId,
+        content: trimmedContent,
+        senderId: currentUserId,
+        senderName: currentUserName,
+        timestamp,
+      },
+    });
+
+    // 4. IMMEDIATELY return - user doesn't wait for anything!
+    setIsSending(false);
+    textareaRef.current?.focus();
+
+    // 5. Fire-and-forget: Database save happens completely in background
+    // This runs AFTER the function returns - true async!
+    (async () => {
+      try {
+        const { data: savedMessage, error } = await supabase
+          .from('messages')
+          .insert({
+            conversation_id: conversationId,
+            sender_id: currentUserId,
+            content: trimmedContent,
+            type: 'text',
+            status: 'sent',
+          })
+          .select()
+          .single();
+
+        if (error) {
+          // Silent rollback - update UI to show failed
+          queryClient.setQueryData(['messages', conversationId], (old: any) => {
+            if (!old) return old;
+            return {
+              ...old,
+              pages: old.pages.map((page: any[]) =>
+                page.map((msg: any) =>
+                  msg.id === tempId ? { ...msg, status: 'failed' } : msg
+                )
+              ),
+            };
+          });
+          console.error('Background save failed:', error);
+          return;
+        }
+
+        // Replace temp message with real one (keep original timestamp to prevent jump!)
+        queryClient.setQueryData(['messages', conversationId], (old: any) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page: any[]) =>
+              page.map((msg: any) =>
+                msg.id === tempId
+                  ? {
+                    ...savedMessage,
+                    status: 'sent',
+                    // Keep the original client timestamp to prevent time jump
+                    created_at: msg.created_at,
+                    updated_at: msg.updated_at,
+                  }
+                  : msg
+              )
+            ),
+          };
+        });
+
+        // Update conversation's last message in database (fire-and-forget)
+        // Note: We keep the original client timestamp in the UI cache to prevent time jump
+        supabase
+          .from('conversations')
+          .update({
+            last_message_content: trimmedContent,
+            last_message_time: savedMessage.created_at,
+            last_message_sender_id: currentUserId,
+          })
+          .eq('id', conversationId);
+      } catch (err) {
+        console.error('Background save error:', err);
+      }
+    })();
+  }, [conversationId, currentUserId, currentUserName, queryClient, supabase]);
 
   const handleSend = () => {
     const trimmedMessage = message.trim();
 
-    if (!trimmedMessage || isSending) {
+    // Don't send if no message, already sending, or user not loaded yet
+    if (!trimmedMessage || isSending || !currentUserId) {
       return;
     }
 
@@ -271,9 +288,9 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
     // Clear input immediately for better UX (optimistic)
     setMessage('');
 
-    // Set sending state and send message
+    // Set sending state and send message via WebSocket (no POST request!)
     setIsSending(true);
-    sendMessageMutation.mutate(trimmedMessage);
+    sendMessageViaWebSocket(trimmedMessage);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -285,19 +302,21 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
   };
 
   return (
-    <div className="bg-secondary px-4 py-3 border-t border-border z-20 min-h-[68px] flex items-end" role="form" aria-label="Message input">
-      <div className="flex items-end gap-2 w-full max-w-4xl mx-auto">
-        {/* Attach Button */}
-        <div className="flex items-center gap-2 pb-2">
-          <Button variant="ghost" size="icon" className="h-11 w-11 text-muted-foreground/60 hover:text-muted-foreground hover:bg-transparent shrink-0 transition-colors">
-            <Smile className="h-6 w-6" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-11 w-11 text-muted-foreground/60 hover:text-muted-foreground hover:bg-transparent shrink-0 transition-colors">
+    <div className="bg-[#0b1014] px-4 py-2 z-20 min-h-[56px] flex items-center" role="form" aria-label="Message input">
+      <div className="flex items-center gap-3 w-full max-w-4xl mx-auto">
+        {/* Input Field Container - WhatsApp Style with icons inside */}
+        <div className="flex-1 flex items-center bg-[#202c33] rounded-[24px] pl-2 pr-4 py-1 outline-none">
+          {/* Plus Button - Inside input */}
+          <button className="p-2 text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none">
             <Plus className="h-6 w-6" />
-          </Button>
-        </div>
+          </button>
 
-        <div className="flex-1 flex items-end gap-2 bg-input rounded-lg px-4 py-2.5 my-1.5 focus-within:bg-input/80 transition-all">
+          {/* Emoji Button - Inside input */}
+          <button className="p-2 text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none">
+            <Smile className="h-6 w-6" />
+          </button>
+
+          {/* Text Input */}
           <Textarea
             ref={textareaRef}
             value={message}
@@ -309,34 +328,27 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
             }}
             onKeyDown={handleKeyDown}
             placeholder="Type a message"
-            className="min-h-[26px] max-h-[150px] w-full resize-none border-0 bg-transparent p-0 focus-visible:ring-0 placeholder:text-muted-foreground/60 leading-6 py-0.5 text-[15.5px] text-foreground"
+            className="flex-1 min-h-[24px] max-h-[120px] resize-none border-0 bg-transparent px-2 py-1.5 focus:ring-0 focus:border-0 focus-visible:ring-0 placeholder:text-[#8696a0] leading-6 text-[15px] text-[#e9edef] outline-none"
             rows={1}
             aria-label="Message input"
           />
         </div>
 
-        {/* Send/Mic Button */}
-        <div className="pb-2 pl-1">
-          {message.trim() ? (
-            <Button
-              onClick={handleSend}
-              size="icon"
-              className="h-11 w-11 rounded-full shrink-0 bg-transparent text-muted-foreground/60 hover:text-primary hover:bg-transparent shadow-none transition-all"
-              aria-label="Send message"
-            >
-              <Send className="h-6 w-6" />
-            </Button>
-          ) : (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-11 w-11 text-muted-foreground/60 hover:text-muted-foreground hover:bg-transparent shrink-0 transition-colors"
-              aria-label="Voice message"
-            >
-              <Mic className="h-6 w-6" />
-            </Button>
-          )}
-        </div>
+        {/* Mic/Send Button - Outside input */}
+        {message.trim() ? (
+          <Button
+            onClick={handleSend}
+            size="icon"
+            className="h-11 w-11 rounded-full shrink-0 bg-[#00a884] hover:bg-[#06cf9c] text-white shadow-md transition-all duration-200"
+            aria-label="Send message"
+          >
+            <Send className="h-5 w-5" />
+          </Button>
+        ) : (
+          <button className="h-11 w-11 flex items-center justify-center text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none">
+            <Mic className="h-6 w-6" />
+          </button>
+        )}
       </div>
     </div>
   );

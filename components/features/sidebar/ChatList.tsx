@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useRef } from 'react';
+import { useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChatRow } from './ChatRow';
 import { ChatListSkeleton } from './ChatListSkeleton';
 import { useChatList } from '@/hooks/useChatList';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useAppReady } from '@/hooks/useAppReady';
+import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 interface ChatListProps {
@@ -18,9 +20,14 @@ interface ChatListProps {
  * Virtualized conversation list component
  * Uses @tanstack/react-virtual for performance with large lists
  * Integrates with useChatList hook for data fetching
+ * 
+ * Loading Strategy: Shows skeleton until ALL app data is ready
+ * This ensures chatlist, header, and messages all appear together
  */
 export function ChatList({ searchQuery, activeChatId, onChatSelect }: ChatListProps) {
   const { conversations, isLoading, isError, error, refetch } = useChatList(searchQuery);
+  const { data: currentUser } = useCurrentUser();
+  const isAppReady = useAppReady();
   const parentRef = useRef<HTMLDivElement>(null);
 
   const rowVirtualizer = useVirtualizer({
@@ -30,8 +37,9 @@ export function ChatList({ searchQuery, activeChatId, onChatSelect }: ChatListPr
     overscan: 5,
   });
 
-  // Loading state
-  if (isLoading) {
+  // Show skeleton until ALL critical data is loaded (conversations + currentUser)
+  // This ensures everything appears together, not sequentially
+  if (isLoading || !isAppReady) {
     return <ChatListSkeleton />;
   }
 
@@ -109,6 +117,7 @@ export function ChatList({ searchQuery, activeChatId, onChatSelect }: ChatListPr
                 isActive={activeChatId === conversation.id}
                 onClick={() => onChatSelect?.(conversation.id)}
                 searchQuery={searchQuery}
+                currentUserId={currentUser?.id}
               />
             </div>
           );

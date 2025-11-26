@@ -1,10 +1,13 @@
 'use client';
 
-import { useRef, useMemo, useState, useEffect, useLayoutEffect, useCallback, MutableRefObject } from 'react';
+import { useRef, useMemo, useState, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useMessages } from '@/hooks/useMessages';
+import { useAppReady } from '@/hooks/useAppReady';
 import { MessageBubble } from './MessageBubble';
 import { MessageListSkeleton } from './MessageListSkeleton';
 import { TypingIndicator } from './TypingIndicator';
+import { EditMessageModal } from './EditMessageModal';
+import { DeleteMessageModal } from './DeleteMessageModal';
 import { Loader2, ArrowDown, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useUIStore } from '@/store/ui.store';
@@ -34,11 +37,7 @@ const TypingHeader = ({
 
     if (!typingUser) return null;
 
-    return (
-        <div className="pb-2 px-2">
-            <TypingIndicator userName={typingUser.userName} />
-        </div>
-    );
+    return <TypingIndicator userName={typingUser.userName} />;
 };
 
 const LoadingIndicator = ({ isFetching }: { isFetching: boolean }) => {
@@ -56,10 +55,12 @@ const LoadingIndicator = ({ isFetching }: { isFetching: boolean }) => {
 
 interface MessageListProps {
     conversationId: string;
-    currentUserId: string;
+    currentUserId?: string;
+    otherUserAvatarUrl?: string | null;
+    otherUserName?: string | null;
 }
 
-export function MessageList({ conversationId, currentUserId }: MessageListProps) {
+export function MessageList({ conversationId, currentUserId, otherUserAvatarUrl, otherUserName }: MessageListProps) {
     const { 
         data, 
         fetchNextPage, 
@@ -69,6 +70,9 @@ export function MessageList({ conversationId, currentUserId }: MessageListProps)
         isError, 
         refetch 
     } = useMessages(conversationId);
+    
+    // Check if ALL app data is ready (conversations + currentUser)
+    const isAppReady = useAppReady();
     
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -86,13 +90,21 @@ export function MessageList({ conversationId, currentUserId }: MessageListProps)
         return [...allMessages].reverse();
     }, [data]);
 
-    // Initial scroll to bottom
+    // Initial scroll to bottom - runs after DOM is painted
     useLayoutEffect(() => {
-        if (isInitialLoadRef.current && messages.length > 0 && !isLoading) {
-            messagesEndRef.current?.scrollIntoView();
+        if (isInitialLoadRef.current && messages.length > 0 && !isLoading && isAppReady) {
+            const container = scrollContainerRef.current;
+            if (container) {
+                // Use requestAnimationFrame to ensure DOM is fully rendered
+                requestAnimationFrame(() => {
+                    if (container) {
+                        container.scrollTop = container.scrollHeight;
+                    }
+                });
+            }
             isInitialLoadRef.current = false;
         }
-    }, [messages.length, isLoading]);
+    }, [messages.length, isLoading, isAppReady]);
 
     // Restore scroll position after loading older messages
     useLayoutEffect(() => {
@@ -115,9 +127,14 @@ export function MessageList({ conversationId, currentUserId }: MessageListProps)
     }, [isFetchingNextPage, messages]);
 
     // Auto-scroll to bottom ONLY when a NEW message arrives (not when loading older messages)
-    useEffect(() => {
+    useLayoutEffect(() => {
         const prevCount = prevMessageCountRef.current;
         const currentCount = messages.length;
+        
+        // Skip if count hasn't changed
+        if (prevCount === currentCount) return;
+        
+        const isNewMessage = currentCount > prevCount && (currentCount - prevCount) <= 3;
         prevMessageCountRef.current = currentCount;
 
         // Only scroll if:
@@ -125,12 +142,16 @@ export function MessageList({ conversationId, currentUserId }: MessageListProps)
         // 2. Not fetching older messages
         // 3. User is near bottom
         // 4. Message count increased by a small amount (new message, not page load)
-        const isNewMessage = currentCount > prevCount && (currentCount - prevCount) <= 3;
-        
         if (isNearBottom && !isInitialLoadRef.current && !isFetchingNextPage && isNewMessage) {
-            messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+            const container = scrollContainerRef.current;
+            if (container) {
+                // Use direct scrollTop instead of scrollIntoView for smoother behavior
+                requestAnimationFrame(() => {
+                    container.scrollTop = container.scrollHeight;
+                });
+            }
         }
-    }, [messages.length, isNearBottom, isFetchingNextPage]);
+    }, [messages, isNearBottom, isFetchingNextPage]);
 
     // Scroll event handler
     const handleScroll = useCallback(() => {
@@ -167,23 +188,59 @@ export function MessageList({ conversationId, currentUserId }: MessageListProps)
         savedScrollInfoRef.current = null;
         prevFetchingRef.current = false;
         prevMessageCountRef.current = 0;
+        setIsNearBottom(true);
+        setShowScrollBottom(false);
     }, [conversationId]);
 
+    // Ensure scroll to bottom after content renders (handles page refresh)
+    useEffect(() => {
+        if (!isLoading && messages.length > 0 && isAppReady && isInitialLoadRef.current) {
+            const container = scrollContainerRef.current;
+            if (container) {
+                // Double RAF to ensure content is fully painted
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        if (container && isInitialLoadRef.current) {
+                            container.scrollTop = container.scrollHeight;
+                            isInitialLoadRef.current = false;
+                        }
+                    });
+                });
+            }
+        }
+    }, [isLoading, messages.length, isAppReady]);
+
     const handleScrollToBottom = useCallback(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+        const container = scrollContainerRef.current;
+        if (container) {
+            container.scrollTo({
+                top: container.scrollHeight,
+                behavior: 'smooth'
+            });
+        }
     }, []);
 
     // Auto scroll when typing indicator appears
     const handleTypingChange = useCallback((isTyping: boolean) => {
         if (isTyping && isNearBottom) {
-            // Small delay to let the typing indicator render first
-            setTimeout(() => {
-                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-            }, 50);
+            const container = scrollContainerRef.current;
+            if (container) {
+                // Small delay to let the typing indicator render first
+                requestAnimationFrame(() => {
+                    container.scrollTo({
+                        top: container.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                });
+            }
         }
     }, [isNearBottom]);
 
-    if (isLoading) return <MessageListSkeleton />;
+    // Show skeleton in two cases:
+    // 1. Initial page load (!isAppReady) - wait for all app data
+    // 2. Messages still loading for this conversation
+    // On conversation switch, isAppReady is true so only messages loading matters
+    if (isLoading || !currentUserId || !isAppReady) return <MessageListSkeleton />;
 
     if (isError) {
         return (
@@ -210,7 +267,7 @@ export function MessageList({ conversationId, currentUserId }: MessageListProps)
     }
 
     return (
-        <div className="relative h-full">
+        <div className="relative h-full chat-background">
             {/* Scroll Container */}
             <div
                 ref={scrollContainerRef}
@@ -221,22 +278,65 @@ export function MessageList({ conversationId, currentUserId }: MessageListProps)
 
                 {/* Messages - oldest at top, newest at bottom */}
                 <div className="flex flex-col gap-1 py-2">
-                    {messages.map((message, index) => {
-                        // Check if this is the first message in a group from the same sender
-                        const prevMessage = index > 0 ? messages[index - 1] : null;
-                        const showTail = !prevMessage || prevMessage.sender_id !== message.sender_id;
+                    {(() => {
+                        // Find the last message from current user for each status type
+                        // Facebook Messenger style: show BOTH read avatar AND sending/sent status
+                        let lastSendingOwnMessageId: string | null = null;
+                        let lastReadOwnMessageId: string | null = null;
+                        let lastSentOwnMessageId: string | null = null;
                         
-                        return (
-                            <div key={message.id} className="px-2">
-                                <MessageBubble
-                                    message={message}
-                                    isOwnMessage={message.sender_id === currentUserId}
-                                    senderName={message.sender?.full_name || 'Unknown'}
-                                    showTail={showTail}
-                                />
-                            </div>
-                        );
-                    })}
+                        // Iterate from end to find last own messages by status
+                        for (let i = messages.length - 1; i >= 0; i--) {
+                            const msg = messages[i];
+                            if (msg.sender_id === currentUserId) {
+                                // Check for sending/queued status first
+                                if (!lastSendingOwnMessageId && (msg.status === 'sending' || msg.status === 'queued')) {
+                                    lastSendingOwnMessageId = msg.id;
+                                }
+                                if (!lastReadOwnMessageId && msg.status === 'read') {
+                                    lastReadOwnMessageId = msg.id;
+                                }
+                                if (!lastSentOwnMessageId && (msg.status === 'sent' || msg.status === 'delivered')) {
+                                    lastSentOwnMessageId = msg.id;
+                                }
+                            }
+                        }
+
+                        // Determine which message should show sending/sent status
+                        // This is separate from read avatar
+                        const pendingStatusMessageId = lastSendingOwnMessageId || lastSentOwnMessageId;
+                        
+                        return messages.map((message, index) => {
+                            // Check if this is the first message in a group from the same sender
+                            const prevMessage = index > 0 ? messages[index - 1] : null;
+                            const showTail = !prevMessage || prevMessage.sender_id !== message.sender_id;
+                            
+                            const isOwnMessage = message.sender_id === currentUserId;
+                            
+                            // Show status indicator on:
+                            // 1. Last read message (shows avatar)
+                            // 2. Last sending/sent message (shows Sending.../Sent text)
+                            // Both can be shown simultaneously on different messages
+                            const showSeenAvatar = isOwnMessage && (
+                                message.id === lastReadOwnMessageId ||
+                                message.id === pendingStatusMessageId
+                            );
+                            
+                            return (
+                                <div key={message.id} className="px-2">
+                                    <MessageBubble
+                                        message={message}
+                                        isOwnMessage={isOwnMessage}
+                                        senderName={message.sender?.full_name || 'Unknown'}
+                                        showTail={showTail}
+                                        showSeenAvatar={showSeenAvatar}
+                                        recipientAvatarUrl={otherUserAvatarUrl}
+                                        recipientName={otherUserName}
+                                    />
+                                </div>
+                            );
+                        });
+                    })()}
                 </div>
 
                 {/* Typing indicator at bottom */}
@@ -245,6 +345,10 @@ export function MessageList({ conversationId, currentUserId }: MessageListProps)
                 {/* Scroll anchor */}
                 <div ref={messagesEndRef} />
             </div>
+
+            {/* Edit & Delete Modals */}
+            <EditMessageModal messages={messages} />
+            <DeleteMessageModal />
 
             {/* Scroll To Bottom Button */}
             <div

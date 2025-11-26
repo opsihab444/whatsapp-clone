@@ -32,7 +32,7 @@ export function DropdownMenu({ children }: { children: React.ReactNode }) {
 export const DropdownMenuTrigger = React.forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement> & { asChild?: boolean }
->(({ children, className, onClick, ...props }, ref) => {
+>(({ children, className, onClick, asChild, ...props }, ref) => {
   const { open, setOpen } = useDropdownMenu();
 
   const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
@@ -40,6 +40,15 @@ export const DropdownMenuTrigger = React.forwardRef<
     setOpen(!open);
     onClick?.(e);
   };
+
+  if (asChild && React.isValidElement(children)) {
+    return React.cloneElement(children as React.ReactElement<React.HTMLAttributes<HTMLElement>>, {
+      ref,
+      onClick: handleClick,
+      'aria-expanded': open,
+      'aria-haspopup': 'menu',
+    });
+  }
 
   return (
     <button

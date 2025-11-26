@@ -8,31 +8,39 @@ interface ReplyToMessage {
 
 interface UIState {
   activeChatId: string | null;
+  activeGroupId: string | null;
   replyTo: ReplyToMessage | null;
   modals: {
     editMessage: { isOpen: boolean; messageId: string | null };
     deleteMessage: { isOpen: boolean; messageId: string | null };
+    createGroup: { isOpen: boolean };
   };
   typingUsers: Map<string, { userName: string; timestamp: number }>;
   setActiveChatId: (chatId: string | null) => void;
+  setActiveGroupId: (groupId: string | null) => void;
   setReplyTo: (message: ReplyToMessage | null) => void;
   openEditModal: (messageId: string) => void;
   closeEditModal: () => void;
   openDeleteModal: (messageId: string) => void;
   closeDeleteModal: () => void;
+  openCreateGroupModal: () => void;
+  closeCreateGroupModal: () => void;
   setUserTyping: (conversationId: string, userName: string) => void;
   clearUserTyping: (conversationId: string) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
   activeChatId: null,
+  activeGroupId: null,
   replyTo: null,
   modals: {
     editMessage: { isOpen: false, messageId: null },
     deleteMessage: { isOpen: false, messageId: null },
+    createGroup: { isOpen: false },
   },
   typingUsers: new Map(),
-  setActiveChatId: (chatId) => set({ activeChatId: chatId }),
+  setActiveChatId: (chatId) => set({ activeChatId: chatId, activeGroupId: null }),
+  setActiveGroupId: (groupId) => set({ activeGroupId: groupId, activeChatId: null }),
   setReplyTo: (message) => set({ replyTo: message }),
   openEditModal: (messageId) =>
     set((state) => ({
@@ -60,6 +68,20 @@ export const useUIStore = create<UIState>((set) => ({
       modals: {
         ...state.modals,
         deleteMessage: { isOpen: false, messageId: null },
+      },
+    })),
+  openCreateGroupModal: () =>
+    set((state) => ({
+      modals: {
+        ...state.modals,
+        createGroup: { isOpen: true },
+      },
+    })),
+  closeCreateGroupModal: () =>
+    set((state) => ({
+      modals: {
+        ...state.modals,
+        createGroup: { isOpen: false },
       },
     })),
   setUserTyping: (conversationId, userName) =>

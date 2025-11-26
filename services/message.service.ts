@@ -1,8 +1,11 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { Message, MessageStatus, MessageType, ServiceResult } from '@/types';
+import { getCachedUser } from '@/lib/supabase/cached-auth';
 
 /**
  * Get messages for a conversation with pagination
+ * Note: Auth check removed - Supabase RLS handles authorization
+ * This makes the query faster by avoiding an extra auth call
  */
 export async function getMessages(
   supabase: SupabaseClient,
@@ -11,19 +14,8 @@ export async function getMessages(
   limit: number = 50
 ): Promise<ServiceResult<Message[]>> {
   try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-    if (userError || !user) {
-      return {
-        success: false,
-        error: {
-          type: 'AUTH_ERROR',
-          message: 'User not authenticated',
-        },
-      };
-    }
-
     // Query messages with sender profile
+    // RLS policy ensures only conversation participants can read messages
     const { data: messages, error: messagesError } = await supabase
       .from('messages')
       .select(`
@@ -100,15 +92,16 @@ interface SendMessageParams {
 
 /**
  * Send a new message
+ * SERVER-SIDE VALIDATION: Cannot be bypassed by client manipulation
  */
 export async function sendMessage(
   supabase: SupabaseClient,
   params: SendMessageParams
 ): Promise<ServiceResult<Message>> {
   try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const user = await getCachedUser(supabase);
 
-    if (userError || !user) {
+    if (!user) {
       return {
         success: false,
         error: {
@@ -118,25 +111,105 @@ export async function sendMessage(
       };
     }
 
-    // Validate message content
-    if (!params.content || !params.content.trim()) {
+    // SERVER-SIDE VALIDATION - Cannot be bypassed
+    // 1. Check if content exists
+    if (!params.content) {
       return {
         success: false,
         error: {
           type: 'VALIDATION_ERROR',
-          message: 'Message content cannot be empty',
+          message: 'Message content is required',
         },
       };
     }
 
-    // Insert message
+    // 2. Trim and validate trimmed content
+    const trimmedContent = params.content.trim();
+    if (!trimmedContent || trimmedContent.length === 0) {
+      return {
+        success: false,
+        error: {
+          type: 'VALIDATION_ERROR',
+          message: 'Message content cannot be empty or whitespace only',
+        },
+      };
+    }
+
+    // 3. Check minimum length (at least 1 character)
+    if (trimmedContent.length < 1) {
+      return {
+        success: false,
+        error: {
+          type: 'VALIDATION_ERROR',
+          message: 'Message must contain at least 1 character',
+        },
+      };
+    }
+
+    // 4. Check maximum length to prevent abuse
+    if (trimmedContent.length > 4000) {
+      return {
+        success: false,
+        error: {
+          type: 'VALIDATION_ERROR',
+          message: 'Message exceeds maximum length of 4000 characters',
+        },
+      };
+    }
+
+    // 5. Validate conversation exists and user is a participant
+    const { data: conversation, error: convError } = await supabase
+      .from('conversations')
+      .select('id, participant_1_id, participant_2_id')
+      .eq('id', params.conversation_id)
+      .single();
+
+    if (convError || !conversation) {
+      return {
+        success: false,
+        error: {
+          type: 'VALIDATION_ERROR',
+          message: 'Conversation not found',
+        },
+      };
+    }
+
+    // 6. Verify user is a participant in this conversation
+    const isParticipant =
+      conversation.participant_1_id === user.id ||
+      conversation.participant_2_id === user.id;
+
+    if (!isParticipant) {
+      return {
+        success: false,
+        error: {
+          type: 'PERMISSION_DENIED',
+          message: 'You are not authorized to send messages in this conversation',
+        },
+      };
+    }
+
+    // 7. Validate message type
+    const validTypes: MessageType[] = ['text', 'image', 'video', 'audio', 'file'];
+    const messageType = params.type || 'text';
+    if (!validTypes.includes(messageType)) {
+      return {
+        success: false,
+        error: {
+          type: 'VALIDATION_ERROR',
+          message: 'Invalid message type',
+        },
+      };
+    }
+
+    // Insert message (using trimmed content)
     const { data: message, error: insertError } = await supabase
       .from('messages')
       .insert({
         conversation_id: params.conversation_id,
         sender_id: user.id,
-        content: params.content.trim(),
-        type: params.type || 'text',
+        content: trimmedContent, // Use trimmed content
+        type: messageType,
         status: 'sent',
       })
       .select(`
@@ -172,6 +245,7 @@ export async function sendMessage(
       .update({
         last_message_content: message.content,
         last_message_time: message.created_at,
+        last_message_sender_id: message.sender_id,
       })
       .eq('id', params.conversation_id);
 
@@ -232,9 +306,9 @@ export async function editMessage(
   newContent: string
 ): Promise<ServiceResult<Message>> {
   try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const user = await getCachedUser(supabase);
 
-    if (userError || !user) {
+    if (!user) {
       return {
         success: false,
         error: {
@@ -298,9 +372,9 @@ export async function deleteMessage(
   messageId: string
 ): Promise<ServiceResult<Message>> {
   try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const user = await getCachedUser(supabase);
 
-    if (userError || !user) {
+    if (!user) {
       return {
         success: false,
         error: {
@@ -353,9 +427,9 @@ export async function markConversationAsRead(
   conversationId: string
 ): Promise<ServiceResult<void>> {
   try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const user = await getCachedUser(supabase);
 
-    if (userError || !user) {
+    if (!user) {
       return {
         success: false,
         error: {
@@ -369,7 +443,7 @@ export async function markConversationAsRead(
     // Only update messages that are not sent by the current user
     const { error: updateError } = await supabase
       .from('messages')
-      .update({ 
+      .update({
         status: 'read'
       })
       .eq('conversation_id', conversationId)

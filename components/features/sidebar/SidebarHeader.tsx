@@ -16,6 +16,7 @@ import {
 import { signOut } from '@/services/auth.service';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
+import { useUIStore } from '@/store/ui.store';
 
 interface SidebarHeaderProps {
   userEmail?: string;
@@ -24,6 +25,8 @@ interface SidebarHeaderProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onSearchSubmit?: (query: string) => void;
+  activeFilter?: 'all' | 'groups';
+  onFilterChange?: (filter: 'all' | 'groups') => void;
 }
 
 export function SidebarHeader({
@@ -33,8 +36,11 @@ export function SidebarHeader({
   searchQuery,
   onSearchChange,
   onSearchSubmit,
+  activeFilter = 'all',
+  onFilterChange,
 }: SidebarHeaderProps) {
   const router = useRouter();
+  const { openCreateGroupModal } = useUIStore();
 
   const initials = userName
     ? userName
@@ -90,9 +96,14 @@ export function SidebarHeader({
             <span className="sr-only">Status</span>
           </Button>
 
-          <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full text-muted-foreground hover:bg-muted/10 hover:text-foreground transition-colors">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-10 w-10 rounded-full text-muted-foreground hover:bg-muted/10 hover:text-foreground transition-colors"
+            onClick={openCreateGroupModal}
+          >
             <MessageSquarePlus className="h-[22px] w-[22px]" />
-            <span className="sr-only">New Chat</span>
+            <span className="sr-only">New Group</span>
           </Button>
 
           <DropdownMenu>
@@ -102,7 +113,7 @@ export function SidebarHeader({
                 <span className="sr-only">Menu</span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" sideOffset={5} alignOffset={0} className="w-56">
+            <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem>
                 Settings
               </DropdownMenuItem>
@@ -128,7 +139,7 @@ export function SidebarHeader({
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="pl-12 bg-secondary border-none focus-visible:ring-0 h-[38px] rounded-lg text-[15px] placeholder:text-muted-foreground/60 text-foreground shadow-none"
+            className="pl-12 bg-secondary border-none focus:ring-0 focus:border-none focus-visible:ring-0 h-[38px] rounded-lg text-[15px] placeholder:text-muted-foreground/60 text-foreground shadow-none outline-none"
             aria-label="Search conversations or enter email"
           />
         </div>
@@ -138,25 +149,35 @@ export function SidebarHeader({
       <div className="px-3 py-2.5 flex items-center gap-2 border-b border-border/50 bg-background">
         <Button
           variant="ghost"
-          className="h-8 px-3.5 rounded-full bg-secondary hover:bg-secondary/80 text-foreground text-[14px] font-normal"
+          onClick={() => onFilterChange?.('all')}
+          className={`h-8 px-3.5 rounded-full text-[14px] ${
+            activeFilter === 'all'
+              ? 'bg-primary/20 hover:bg-primary/30 text-primary font-medium border border-primary/30'
+              : 'hover:bg-accent text-muted-foreground hover:text-foreground font-normal'
+          }`}
         >
           All
         </Button>
         <Button
           variant="ghost"
-          className="h-8 px-3.5 rounded-full hover:bg-secondary/50 text-muted-foreground text-[14px] font-normal"
+          className="h-8 px-3.5 rounded-full hover:bg-accent text-muted-foreground hover:text-foreground text-[14px] font-normal"
         >
           Unread
         </Button>
         <Button
           variant="ghost"
-          className="h-8 px-3.5 rounded-full hover:bg-secondary/50 text-muted-foreground text-[14px] font-normal"
+          className="h-8 px-3.5 rounded-full hover:bg-accent text-muted-foreground hover:text-foreground text-[14px] font-normal"
         >
           Favorites
         </Button>
         <Button
           variant="ghost"
-          className="h-8 px-3.5 rounded-full hover:bg-secondary/50 text-muted-foreground text-[14px] font-normal"
+          onClick={() => onFilterChange?.('groups')}
+          className={`h-8 px-3.5 rounded-full text-[14px] ${
+            activeFilter === 'groups'
+              ? 'bg-primary/20 hover:bg-primary/30 text-primary font-medium border border-primary/30'
+              : 'hover:bg-accent text-muted-foreground hover:text-foreground font-normal'
+          }`}
         >
           Groups
         </Button>

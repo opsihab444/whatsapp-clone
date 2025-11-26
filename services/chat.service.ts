@@ -1,5 +1,6 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import { Conversation, ServiceResult } from '@/types';
+import { getCachedUser } from '@/lib/supabase/cached-auth';
 
 /**
  * Get all conversations for the current user
@@ -9,10 +10,10 @@ export async function getConversations(
   supabase: SupabaseClient
 ): Promise<ServiceResult<Conversation[]>> {
   try {
-    // Get current user
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    // Get current user (cached)
+    const user = await getCachedUser(supabase);
     
-    if (userError || !user) {
+    if (!user) {
       return {
         success: false,
         error: {
@@ -31,6 +32,7 @@ export async function getConversations(
         participant_2_id,
         last_message_content,
         last_message_time,
+        last_message_sender_id,
         created_at
       `)
       .or(`participant_1_id.eq.${user.id},participant_2_id.eq.${user.id}`)
@@ -55,11 +57,21 @@ export async function getConversations(
       conv.participant_1_id === user.id ? conv.participant_2_id : conv.participant_1_id
     );
 
-    // Fetch other users' profiles
-    const { data: profiles, error: profileError } = await supabase
-      .from('profiles')
-      .select('id, email, full_name, avatar_url, created_at')
-      .in('id', otherUserIds);
+    // Fetch profiles and unread counts in PARALLEL for faster loading
+    const [profilesResult, unreadResult] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('id, email, full_name, avatar_url, created_at')
+        .in('id', otherUserIds),
+      supabase
+        .from('unread_counts')
+        .select('conversation_id, count')
+        .eq('user_id', user.id)
+        .in('conversation_id', conversations.map((c) => c.id))
+    ]);
+
+    const { data: profiles, error: profileError } = profilesResult;
+    const { data: unreadCounts, error: unreadError } = unreadResult;
 
     if (profileError) {
       return {
@@ -70,13 +82,6 @@ export async function getConversations(
         },
       };
     }
-
-    // Fetch unread counts
-    const { data: unreadCounts, error: unreadError } = await supabase
-      .from('unread_counts')
-      .select('conversation_id, count')
-      .eq('user_id', user.id)
-      .in('conversation_id', conversations.map((c) => c.id));
 
     if (unreadError) {
       return {
@@ -103,6 +108,7 @@ export async function getConversations(
         participant_2_id: conv.participant_2_id,
         last_message_content: conv.last_message_content,
         last_message_time: conv.last_message_time,
+        last_message_sender_id: conv.last_message_sender_id,
         created_at: conv.created_at,
         other_user: otherUser || {
           id: otherUserId,
@@ -136,9 +142,9 @@ export async function updateUnreadCount(
   count: number
 ): Promise<ServiceResult<void>> {
   try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const user = await getCachedUser(supabase);
     
-    if (userError || !user) {
+    if (!user) {
       return {
         success: false,
         error: {
@@ -210,9 +216,9 @@ export async function searchUserByEmail(
   email: string
 ): Promise<ServiceResult<{ id: string; email: string; full_name: string | null; avatar_url: string | null } | null>> {
   try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const user = await getCachedUser(supabase);
     
-    if (userError || !user) {
+    if (!user) {
       return {
         success: false,
         error: {
@@ -264,9 +270,9 @@ export async function getOrCreateConversation(
   otherUserId: string
 ): Promise<ServiceResult<string>> {
   try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    const user = await getCachedUser(supabase);
     
-    if (userError || !user) {
+    if (!user) {
       return {
         success: false,
         error: {

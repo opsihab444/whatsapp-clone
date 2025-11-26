@@ -10,11 +10,14 @@ import { useMemo } from 'react';
  * Hook to fetch and manage conversation list
  * Integrates with TanStack Query for caching and state management
  * 
+ * Optimization: Uses staleTime and gcTime to minimize refetches
+ * Realtime updates handle live data, so we don't need frequent refetches
+ * 
  * @param searchQuery - Optional search query to filter conversations
  * @returns Query result with conversations data, loading, and error states
  */
 export function useChatList(searchQuery: string = '') {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   const query = useQuery({
     queryKey: ['conversations'],
@@ -35,7 +38,10 @@ export function useChatList(searchQuery: string = '') {
         return timeB - timeA;
       });
     },
-    refetchOnWindowFocus: true,
+    staleTime: 1000 * 60 * 10, // 10 minutes - realtime handles updates
+    gcTime: 1000 * 60 * 30, // 30 minutes - keep in cache longer
+    refetchOnWindowFocus: false, // Disable - realtime handles updates
+    refetchOnMount: false, // Don't refetch if data exists
     refetchOnReconnect: true,
   });
 

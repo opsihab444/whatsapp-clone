@@ -56,48 +56,49 @@
 }
 
 .dark {
-  /* Base colors - Exact WhatsApp Dark Mode */
-  --background: 202 24% 9%;
-  /* #111b21 */
+  /* Base colors - Deep Dark WhatsApp Mode */
+  --background: 200 20% 6%;
+  /* #0b1014 - Deeper dark */
   --foreground: 210 29% 93%;
   /* #e9edef */
 
-  --primary: 168 55% 55%;
-  /* #00a884 - WhatsApp Green */
-  --primary-foreground: 202 24% 9%;
+  --primary: 142 70% 45%;
+  /* #25D366 - WhatsApp Green */
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 202 24% 16%;
-  /* #202c33 - Sidebar/Header bg */
+  --secondary: 200 18% 13%;
+  /* #182229 - Slightly lighter for better contrast */
   --secondary-foreground: 210 29% 93%;
 
-  --muted: 202 24% 16%;
-  --muted-foreground: 213 14% 57%;
-  /* #8696a0 */
+  --muted: 200 18% 13%;
+  --muted-foreground: 213 18% 65%;
+  /* #9aabb4 - Brighter for better readability */
 
-  --accent: 202 24% 16%;
+  --accent: 200 18% 16%;
+  /* Lighter accent for hover states */
   --accent-foreground: 210 29% 93%;
 
   --destructive: 0 62% 30%;
   --destructive-foreground: 210 29% 93%;
 
-  --border: 202 24% 16%;
-  /* #202c33 - Borders blend with bg */
-  --input: 202 24% 22%;
-  /* #2a3942 - Search input bg */
-  --ring: 168 55% 55%;
+  --border: 200 18% 18%;
+  /* #242f36 - More visible borders */
+  --input: 200 18% 15%;
+  /* #1f2c33 - Input bg */
+  --ring: 142 70% 45%;
 
-  --card: 202 24% 16%;
+  --card: 200 18% 11%;
   --card-foreground: 210 29% 93%;
-  --popover: 202 24% 16%;
+  --popover: 200 18% 11%;
   --popover-foreground: 210 29% 93%;
 
   /* Custom Chat Colors (Dark) - Exact WhatsApp Colors */
-  --chat-bubble-in: 202 24% 16%;
-  /* #202c33 - Received message */
-  --chat-bubble-out: 121 98% 16%;
-  /* #015202 - Sent message */
-  --chat-background: 200 18% 4%;
-  /* #0b141a - Chat background */
+  --chat-bubble-in: 200 18% 14%;
+  /* #1f2c33 - Received message */
+  --chat-bubble-out: 152 69% 25%;
+  /* #005c4b - Sent message (WhatsApp teal) */
+  --chat-background: 200 20% 5%;
+  /* #0a0f12 - Deeper chat background */
 }
 
 * {
@@ -142,9 +143,28 @@ textarea {
 
 /* Focus styles */
 *:focus-visible {
-  outline: 2px solid var(--ring);
+  outline: 2px solid hsl(var(--primary) / 0.5);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+/* Remove default focus outline for inputs and buttons - handled by component */
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+button:focus,
+button:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Remove webkit search input styling */
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-results-button,
+input[type="search"]::-webkit-search-results-decoration {
+  -webkit-appearance: none;
 }
 
 /* Custom Scrollbar */
@@ -248,3 +268,20 @@ textarea {
   scrollbar-width: thin;
   scrollbar-color: hsl(var(--muted-foreground) / 0.2) transparent;
 }
+
+/* Chat Background - Subtle Professional Pattern (Light Mode) */
+.whatsapp-chat-bg {
+  background-color: #f0ebe3;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 100 100'%3E%3Cg fill='%23d5d0c8' fill-opacity='0.4'%3E%3Ccircle cx='10' cy='10' r='2'/%3E%3Ccircle cx='50' cy='10' r='2'/%3E%3Ccircle cx='90' cy='10' r='2'/%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3Ccircle cx='70' cy='30' r='2'/%3E%3Ccircle cx='10' cy='50' r='2'/%3E%3Ccircle cx='50' cy='50' r='2'/%3E%3Ccircle cx='90' cy='50' r='2'/%3E%3Ccircle cx='30' cy='70' r='2'/%3E%3Ccircle cx='70' cy='70' r='2'/%3E%3Ccircle cx='10' cy='90' r='2'/%3E%3Ccircle cx='50' cy='90' r='2'/%3E%3Ccircle cx='90' cy='90' r='2'/%3E%3C/g%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 100px 100px;
+}
+
+/* Dark mode Chat background - WhatsApp doodle pattern */
+.dark .whatsapp-chat-bg {
+  background-color: #0a0f12;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200' viewBox='0 0 200 200'%3E%3Cdefs%3E%3Cstyle%3E.a%7Bfill:%23111a1f;fill-opacity:0.5%7D%3C/style%3E%3C/defs%3E%3Cpath class='a' d='M20 10c0 2.2-1.8 4-4 4s-4-1.8-4-4 1.8-4 4-4 4 1.8 4 4z'/%3E%3Cpath class='a' d='M60 25l-5 8h10z'/%3E%3Cpath class='a' d='M100 15c0 2.8-2.2 5-5 5s-5-2.2-5-5 2.2-5 5-5 5 2.2 5 5z'/%3E%3Cpath class='a' d='M140 20h8v8h-8z'/%3E%3Cpath class='a' d='M180 12l4 7-4 7-4-7z'/%3E%3Cpath class='a' d='M30 50h6v6h-6z'/%3E%3Cpath class='a' d='M70 45c0 3.3-2.7 6-6 6s-6-2.7-6-6 2.7-6 6-6 6 2.7 6 6z'/%3E%3Cpath class='a' d='M110 55l-6 4v-8z'/%3E%3Cpath class='a' d='M150 48c0 2.2-1.8 4-4 4s-4-1.8-4-4 1.8-4 4-4 4 1.8 4 4z'/%3E%3Cpath class='a' d='M190 52h5v5h-5z'/%3E%3Cpath class='a' d='M15 85l5-8 5 8z'/%3E%3Cpath class='a' d='M55 90c0 2.8-2.2 5-5 5s-5-2.2-5-5 2.2-5 5-5 5 2.2 5 5z'/%3E%3Cpath class='a' d='M95 82h7v7h-7z'/%3E%3Cpath class='a' d='M135 88l4-6 4 6-4 6z'/%3E%3Cpath class='a' d='M175 85c0 3-2.5 5.5-5.5 5.5s-5.5-2.5-5.5-5.5 2.5-5.5 5.5-5.5 5.5 2.5 5.5 5.5z'/%3E%3Cpath class='a' d='M25 125c0 2.5-2 4.5-4.5 4.5s-4.5-2-4.5-4.5 2-4.5 4.5-4.5 4.5 2 4.5 4.5z'/%3E%3Cpath class='a' d='M65 120h6v6h-6z'/%3E%3Cpath class='a' d='M105 128l-5-8h10z'/%3E%3Cpath class='a' d='M145 122c0 2.2-1.8 4-4 4s-4-1.8-4-4 1.8-4 4-4 4 1.8 4 4z'/%3E%3Cpath class='a' d='M185 125l3 5-3 5-3-5z'/%3E%3Cpath class='a' d='M35 160h5v5h-5z'/%3E%3Cpath class='a' d='M75 165c0 3-2.5 5.5-5.5 5.5s-5.5-2.5-5.5-5.5 2.5-5.5 5.5-5.5 5.5 2.5 5.5 5.5z'/%3E%3Cpath class='a' d='M115 158l6 4-6 4v-8z'/%3E%3Cpath class='a' d='M155 162c0 2.5-2 4.5-4.5 4.5s-4.5-2-4.5-4.5 2-4.5 4.5-4.5 4.5 2 4.5 4.5z'/%3E%3Cpath class='a' d='M195 168h4v4h-4z'/%3E%3Cpath class='a' d='M10 190l4-7 4 7z'/%3E%3Cpath class='a' d='M50 195c0 2.2-1.8 4-4 4s-4-1.8-4-4 1.8-4 4-4 4 1.8 4 4z'/%3E%3Cpath class='a' d='M90 188h6v6h-6z'/%3E%3Cpath class='a' d='M130 192l5 8h-10z'/%3E%3Cpath class='a' d='M170 190c0 2.8-2.2 5-5 5s-5-2.2-5-5 2.2-5 5-5 5 2.2 5 5z'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 200px 200px;
+}
+

@@ -5,11 +5,12 @@ import { useParams } from 'next/navigation';
 import { MessageList } from '@/components/features/chat/MessageList';
 import { InputArea } from '@/components/features/chat/InputArea';
 import { useUIStore } from '@/store/ui.store';
-import { useChatList } from '@/hooks/useChatList';
+import { useConversation } from '@/hooks/useConversation';
 import { useMarkAsRead } from '@/hooks/useMarkAsRead';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
+import { useAppReady } from '@/hooks/useAppReady';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Loader2, Search, MoreVertical } from 'lucide-react';
+import { Search, MoreVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 
@@ -17,15 +18,22 @@ import { Skeleton } from '@/components/ui/skeleton';
  * Chat conversation page
  * Displays messages for a specific conversation and input area
  * Handles marking messages as read when conversation is opened
+ * 
+ * Loading Strategy: ALL data must be ready before showing real content
+ * - Shows skeleton until conversations, currentUser, AND messages are all loaded
+ * - This ensures everything appears together, not sequentially
  */
 export default function ChatPage() {
   const params = useParams();
   const chatId = params.chatId as string;
   const setActiveChatId = useUIStore((state) => state.setActiveChatId);
 
-  // Use cached hooks
-  const { conversations, isLoading: isLoadingConversations } = useChatList('');
-  const { data: currentUser, isLoading: isLoadingUser } = useCurrentUser();
+  // Read conversation from cache only (no API request)
+  const { conversation, isLoading: isLoadingConversations } = useConversation(chatId);
+  const { data: currentUser } = useCurrentUser();
+  
+  // Check if app data is ready (conversations + currentUser)
+  const isAppReady = useAppReady();
 
   // Mark messages as read when conversation is opened
   useMarkAsRead(chatId);
@@ -39,42 +47,40 @@ export default function ChatPage() {
     };
   }, [chatId, setActiveChatId]);
 
-  // Find the current conversation to display header
-  const conversation = conversations?.find((c) => c.id === chatId);
-
-  // Show full page loader ONLY if we have absolutely no data to show
-  // (i.e. first load of application and we don't know if conversation exists)
-  if (isLoadingConversations && !conversation) {
+  // Conversation not found (only after loading is done AND we have no conversation)
+  if (isAppReady && !conversation) {
     return (
-      <div className="flex h-full items-center justify-center animate-fade-in" role="status" aria-live="polite">
-        <div className="flex flex-col items-center gap-2">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          <span className="sr-only">Loading conversation...</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Conversation not found (only after loading is done)
-  if (!isLoadingConversations && !conversation) {
-    return (
-      <div className="flex h-full items-center justify-center animate-fade-in" role="alert">
+      <div className="flex h-full items-center justify-center bg-[#0b141a]" role="alert">
         <div className="text-center space-y-2">
-          <p className="text-lg font-medium">Conversation not found</p>
-          <p className="text-sm text-muted-foreground">
-            This conversation may have been deleted or you don't have access to it
+          <p className="text-lg font-medium text-zinc-200">Conversation not found</p>
+          <p className="text-sm text-zinc-500">
+            This conversation may have been deleted or you don&apos;t have access to it
           </p>
         </div>
       </div>
     );
   }
 
+  // Show header skeleton only during initial app load (page reload)
+  // On conversation switch, header shows instantly (data already in cache)
+  const showHeaderSkeleton = !isAppReady || (isLoadingConversations && !conversation);
+
   return (
     <div className="flex flex-col h-full">
-      {/* Chat header */}
+      {/* Chat header - shows skeleton or real content */}
       <header className="flex items-center justify-between bg-background px-4 py-3 border-b border-border z-10 shadow-sm min-h-[64px]" role="banner">
         <div className="flex items-center gap-4 overflow-hidden">
-          {conversation ? (
+          {showHeaderSkeleton ? (
+            // Header Skeleton - shown while conversation loads
+            <>
+              <Skeleton className="h-11 w-11 rounded-full" />
+              <div className="flex flex-col gap-1.5">
+                <Skeleton className="h-5 w-32" />
+                <Skeleton className="h-3.5 w-24" />
+              </div>
+            </>
+          ) : conversation ? (
+            // Real header content
             <>
               <Avatar className="h-11 w-11 cursor-pointer hover:opacity-90 transition-opacity">
                 <AvatarImage src={conversation.other_user.avatar_url || undefined} className="object-cover" />
@@ -92,16 +98,7 @@ export default function ChatPage() {
                 </p>
               </div>
             </>
-          ) : (
-            // Header Skeleton
-            <div className="flex items-center gap-4">
-              <Skeleton className="h-11 w-11 rounded-full" />
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-32" />
-                <Skeleton className="h-3 w-20" />
-              </div>
-            </div>
-          )}
+          ) : null}
         </div>
 
         <div className="flex items-center gap-1 text-muted-foreground">
@@ -116,33 +113,24 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {/* Message list */}
+      {/* Message list - ALWAYS renders to start fetching messages in parallel with conversation */}
       <main className="flex-1 overflow-hidden" role="main" aria-label="Messages">
-        {currentUser ? (
-          <MessageList
-            key={chatId}
-            conversationId={chatId}
-            currentUserId={currentUser.id}
-          />
-        ) : (
-          // Show nothing or a skeleton while user loads (should be fast/instant if cached)
-          <div className="h-full w-full bg-background" />
-        )}
-      </main>
-
-      {/* Input area */}
-      {currentUser ? (
-        <InputArea
+        <MessageList
           key={chatId}
           conversationId={chatId}
-          currentUserId={currentUser.id}
-          currentUserName={currentUser.name}
+          currentUserId={currentUser?.id}
+          otherUserAvatarUrl={conversation?.other_user?.avatar_url}
+          otherUserName={conversation?.other_user?.full_name || conversation?.other_user?.email}
         />
-      ) : (
-        <div className="bg-secondary px-4 py-2 border-t border-border min-h-[62px] flex items-end">
-          <Skeleton className="h-10 w-full rounded-lg" />
-        </div>
-      )}
+      </main>
+
+      {/* Input area - always instant */}
+      <InputArea
+        key={chatId}
+        conversationId={chatId}
+        currentUserId={currentUser?.id}
+        currentUserName={currentUser?.name}
+      />
     </div>
   );
 }

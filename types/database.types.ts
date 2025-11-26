@@ -42,6 +42,7 @@ export interface Database {
           participant_2_id: string
           last_message_content: string | null
           last_message_time: string | null
+          last_message_sender_id: string | null
           created_at: string
         }
         Insert: {
@@ -50,6 +51,7 @@ export interface Database {
           participant_2_id: string
           last_message_content?: string | null
           last_message_time?: string | null
+          last_message_sender_id?: string | null
           created_at?: string
         }
         Update: {
@@ -58,6 +60,7 @@ export interface Database {
           participant_2_id?: string
           last_message_content?: string | null
           last_message_time?: string | null
+          last_message_sender_id?: string | null
           created_at?: string
         }
       }
