@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useRef, useEffect, KeyboardEvent, useCallback } from 'react';
+import React, { useState, useRef, useEffect, KeyboardEvent, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Send, Plus, Smile, Mic } from 'lucide-react';
+import { Send, Plus, Smile, Mic, Image as ImageIcon, X, Loader2 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
-import { showErrorWithRetry, showInfoToast } from '@/lib/toast.utils';
+import { showInfoToast, showErrorToast } from '@/lib/toast.utils';
 import { addToQueue } from '@/lib/offline-queue';
 import { Message } from '@/types';
+import Image from 'next/image';
 
 interface InputAreaProps {
   conversationId: string;
@@ -16,12 +17,17 @@ interface InputAreaProps {
   currentUserName?: string;
 }
 
-export function InputArea({ conversationId, currentUserId, currentUserName }: InputAreaProps) {
+function InputAreaComponent({ conversationId, currentUserId, currentUserName }: InputAreaProps) {
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
-  const supabase = createClient();
+  // Memoize Supabase client to prevent recreation on every render
+  const supabase = useMemo(() => createClient(), []);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
 
@@ -70,12 +76,253 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
     };
   }, []);
 
-  // WebSocket-based message sending (like Messenger/WhatsApp)
-  // No POST request - uses persistent WebSocket connection
-  const sendMessageViaWebSocket = useCallback(async (content: string) => {
-    // This function is only called after currentUserId check in handleSend
-    if (!currentUserId) return;
+  // Handle image selection
+  const handleImageSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      showErrorToast('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      showErrorToast('Image size must be less than 10MB');
+      return;
+    }
+
+    setSelectedImage(file);
+    const previewUrl = URL.createObjectURL(file);
+    setImagePreview(previewUrl);
+
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }, []);
+
+  // Clear selected image
+  const clearSelectedImage = useCallback(() => {
+    if (imagePreview) {
+      URL.revokeObjectURL(imagePreview);
+    }
+    setSelectedImage(null);
+    setImagePreview(null);
+  }, [imagePreview]);
+
+  // Direct browser-to-Cloudinary upload with XHR (faster than fetch for uploads)
+  const uploadImageToCDN = useCallback(async (file: File): Promise<string | null> => {
+    const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
+    const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
     
+    if (!cloudName || !uploadPreset) {
+      console.error('Cloudinary config missing');
+      return null;
+    }
+
+    return new Promise((resolve) => {
+      const xhr = new XMLHttpRequest();
+      const formData = new FormData();
+      
+      formData.append('file', file);
+      formData.append('upload_preset', uploadPreset);
+      formData.append('folder', 'chat-images');
+
+      xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, true);
+      
+      xhr.onload = () => {
+        if (xhr.status === 200) {
+          const data = JSON.parse(xhr.responseText);
+          // Add optimization params for CDN delivery
+          const optimizedUrl = data.secure_url.replace('/upload/', '/upload/f_auto,q_auto/');
+          resolve(optimizedUrl);
+        } else {
+          console.error('Upload failed:', xhr.status);
+          resolve(null);
+        }
+      };
+
+      xhr.onerror = () => {
+        console.error('Upload error');
+        resolve(null);
+      };
+
+      xhr.send(formData);
+    });
+  }, []);
+
+  // Get image dimensions from blob URL
+  const getImageDimensions = useCallback((url: string): Promise<{ width: number; height: number }> => {
+    return new Promise((resolve) => {
+      const img = new window.Image();
+      img.onload = () => {
+        // Calculate display dimensions (max 300px, maintain aspect ratio)
+        const maxSize = 300;
+        let width = img.naturalWidth;
+        let height = img.naturalHeight;
+        
+        if (width > maxSize || height > maxSize) {
+          if (width > height) {
+            height = Math.round((height / width) * maxSize);
+            width = maxSize;
+          } else {
+            width = Math.round((width / height) * maxSize);
+            height = maxSize;
+          }
+        }
+        resolve({ width, height });
+      };
+      img.onerror = () => resolve({ width: 200, height: 200 }); // fallback
+      img.src = url;
+    });
+  }, []);
+
+  // Send image message - ULTRA FAST with fire-and-forget pattern
+  const sendImageMessage = useCallback(async () => {
+    if (!currentUserId || !selectedImage || !imagePreview) return;
+
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+    const timestamp = new Date().toISOString();
+    const currentPreviewUrl = imagePreview;
+    const currentFile = selectedImage;
+
+    // Get image dimensions BEFORE showing (instant from blob)
+    const dimensions = await getImageDimensions(currentPreviewUrl);
+
+    // 1. INSTANT UI UPDATE - user sees image immediately with correct dimensions
+    const optimisticMessage: Message = {
+      id: tempId,
+      conversation_id: conversationId,
+      sender_id: currentUserId,
+      content: null,
+      type: 'image',
+      media_url: currentPreviewUrl,
+      media_width: dimensions.width,
+      media_height: dimensions.height,
+      status: 'sending',
+      is_edited: false,
+      is_deleted: false,
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
+
+    queryClient.setQueryData(['messages', conversationId], (old: any) => {
+      if (!old) return { pages: [[optimisticMessage]], pageParams: [0] };
+      return {
+        ...old,
+        pages: old.pages.map((page: any[], index: number) =>
+          index === 0 ? [optimisticMessage, ...page] : page
+        ),
+      };
+    });
+
+    // Update conversation list instantly
+    queryClient.setQueryData(['conversations'], (old: any) => {
+      if (!old) return old;
+      const updated = old.map((conv: any) =>
+        conv.id === conversationId
+          ? { ...conv, last_message_content: '📷 Photo', last_message_time: timestamp, last_message_sender_id: currentUserId }
+          : conv
+      );
+      return updated.sort((a: any, b: any) => 
+        (b.last_message_time ? new Date(b.last_message_time).getTime() : 0) - 
+        (a.last_message_time ? new Date(a.last_message_time).getTime() : 0)
+      );
+    });
+
+    // 2. CLEAR INPUT IMMEDIATELY - user can select another image
+    setSelectedImage(null);
+    setImagePreview(null);
+    setIsUploadingImage(true);
+
+    // 3. BACKGROUND UPLOAD - don't block UI
+    const cdnUrl = await uploadImageToCDN(currentFile);
+
+    if (!cdnUrl) {
+      queryClient.setQueryData(['messages', conversationId], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any[]) =>
+            page.map((msg: any) => msg.id === tempId ? { ...msg, status: 'failed' } : msg)
+          ),
+        };
+      });
+      showErrorToast('Failed to upload image');
+      setIsUploadingImage(false);
+      return;
+    }
+
+    // 4. FIRE-AND-FORGET database save - don't await, update UI immediately
+    setIsUploadingImage(false);
+    
+    // Update UI to show sent (before DB confirms)
+    queryClient.setQueryData(['messages', conversationId], (old: any) => {
+      if (!old) return old;
+      return {
+        ...old,
+        pages: old.pages.map((page: any[]) =>
+          page.map((msg: any) =>
+            msg.id === tempId
+              ? { ...msg, media_url: cdnUrl, status: 'sent', _blobUrl: currentPreviewUrl }
+              : msg
+          )
+        ),
+      };
+    });
+
+    // Database operations in background (non-blocking)
+    supabase
+      .from('messages')
+      .insert({
+        conversation_id: conversationId,
+        sender_id: currentUserId,
+        content: null,
+        type: 'image',
+        media_url: cdnUrl,
+        media_width: dimensions.width,
+        media_height: dimensions.height,
+        status: 'sent',
+      })
+      .select()
+      .single()
+      .then(({ data: savedMessage, error }) => {
+        if (error) {
+          console.error('Message save failed:', error);
+          return;
+        }
+        // Update with real ID from database
+        queryClient.setQueryData(['messages', conversationId], (old: any) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page: any[]) =>
+              page.map((msg: any) =>
+                msg.id === tempId ? { ...savedMessage, _blobUrl: currentPreviewUrl } : msg
+              )
+            ),
+          };
+        });
+
+        // Update conversation in database (fire-and-forget)
+        supabase
+          .from('conversations')
+          .update({
+            last_message_content: '📷 Photo',
+            last_message_time: savedMessage.created_at,
+            last_message_sender_id: currentUserId,
+          })
+          .eq('id', conversationId);
+      });
+  }, [conversationId, currentUserId, selectedImage, imagePreview, queryClient, supabase, uploadImageToCDN]);
+
+  // Send message - optimistic UI + database insert
+  // Using only Postgres Realtime for message delivery (no WebSocket broadcast)
+  const sendMessage = useCallback(async (content: string) => {
+    if (!currentUserId) return;
+
     const trimmedContent = content.trim();
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const timestamp = new Date().toISOString();
@@ -128,98 +375,82 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
       });
     });
 
-    // 3. Send via WebSocket broadcast (instant delivery to other user)
-    // This is the "magic" - just WebSocket frame, no waiting!
-    const messageChannel = supabase.channel(`chat:${conversationId}`);
-    messageChannel.subscribe();
-
-    messageChannel.send({
-      type: 'broadcast',
-      event: 'new_message',
-      payload: {
-        tempId,
-        content: trimmedContent,
-        senderId: currentUserId,
-        senderName: currentUserName,
-        timestamp,
-      },
-    });
-
-    // 4. IMMEDIATELY return - user doesn't wait for anything!
+    // 3. IMMEDIATELY return - user doesn't wait!
     setIsSending(false);
     textareaRef.current?.focus();
 
-    // 5. Fire-and-forget: Database save happens completely in background
-    // This runs AFTER the function returns - true async!
-    (async () => {
-      try {
-        const { data: savedMessage, error } = await supabase
-          .from('messages')
-          .insert({
-            conversation_id: conversationId,
-            sender_id: currentUserId,
-            content: trimmedContent,
-            type: 'text',
-            status: 'sent',
-          })
-          .select()
-          .single();
+    // 4. Save to database - Postgres realtime will notify receiver
+    try {
+      const { data: savedMessage, error } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: conversationId,
+          sender_id: currentUserId,
+          content: trimmedContent,
+          type: 'text',
+          status: 'sent',
+        })
+        .select()
+        .single();
 
-        if (error) {
-          // Silent rollback - update UI to show failed
-          queryClient.setQueryData(['messages', conversationId], (old: any) => {
-            if (!old) return old;
-            return {
-              ...old,
-              pages: old.pages.map((page: any[]) =>
-                page.map((msg: any) =>
-                  msg.id === tempId ? { ...msg, status: 'failed' } : msg
-                )
-              ),
-            };
-          });
-          console.error('Background save failed:', error);
-          return;
-        }
-
-        // Replace temp message with real one (keep original timestamp to prevent jump!)
+      if (error) {
+        // Update UI to show failed
         queryClient.setQueryData(['messages', conversationId], (old: any) => {
           if (!old) return old;
           return {
             ...old,
             pages: old.pages.map((page: any[]) =>
               page.map((msg: any) =>
-                msg.id === tempId
-                  ? {
-                    ...savedMessage,
-                    status: 'sent',
-                    // Keep the original client timestamp to prevent time jump
-                    created_at: msg.created_at,
-                    updated_at: msg.updated_at,
-                  }
-                  : msg
+                msg.id === tempId ? { ...msg, status: 'failed' } : msg
               )
             ),
           };
         });
-
-        // Update conversation's last message in database (fire-and-forget)
-        // Note: We keep the original client timestamp in the UI cache to prevent time jump
-        supabase
-          .from('conversations')
-          .update({
-            last_message_content: trimmedContent,
-            last_message_time: savedMessage.created_at,
-            last_message_sender_id: currentUserId,
-          })
-          .eq('id', conversationId);
-      } catch (err) {
-        console.error('Background save error:', err);
+        console.error('Message save failed:', error);
+        return;
       }
-    })();
-  }, [conversationId, currentUserId, currentUserName, queryClient, supabase]);
+
+      // Replace temp message with real one (keep original timestamp)
+      queryClient.setQueryData(['messages', conversationId], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any[]) =>
+            page.map((msg: any) =>
+              msg.id === tempId
+                ? {
+                  ...savedMessage,
+                  status: 'sent',
+                  created_at: msg.created_at,
+                  updated_at: msg.updated_at,
+                }
+                : msg
+            )
+          ),
+        };
+      });
+
+      // Update conversation in database
+      supabase
+        .from('conversations')
+        .update({
+          last_message_content: trimmedContent,
+          last_message_time: savedMessage.created_at,
+          last_message_sender_id: currentUserId,
+        })
+        .eq('id', conversationId);
+    } catch (err) {
+      console.error('Message send error:', err);
+    }
+  }, [conversationId, currentUserId, queryClient, supabase]);
 
   const handleSend = () => {
+    // If image is selected, send image
+    if (selectedImage && !isUploadingImage) {
+      sendImageMessage();
+      return;
+    }
+
     const trimmedMessage = message.trim();
 
     // Don't send if no message, already sending, or user not loaded yet
@@ -288,9 +519,9 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
     // Clear input immediately for better UX (optimistic)
     setMessage('');
 
-    // Set sending state and send message via WebSocket (no POST request!)
+    // Set sending state and send message
     setIsSending(true);
-    sendMessageViaWebSocket(trimmedMessage);
+    sendMessage(trimmedMessage);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -302,17 +533,62 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
   };
 
   return (
-    <div className="bg-[#0b1014] px-4 py-2 z-20 min-h-[56px] flex items-center" role="form" aria-label="Message input">
-      <div className="flex items-center gap-3 w-full max-w-4xl mx-auto">
-        {/* Input Field Container - WhatsApp Style with icons inside */}
-        <div className="flex-1 flex items-center bg-[#202c33] rounded-[24px] pl-2 pr-4 py-1 outline-none">
-          {/* Plus Button - Inside input */}
-          <button className="p-2 text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none">
-            <Plus className="h-6 w-6" />
-          </button>
+    <div className="bg-[#202c33] px-4 py-2 z-20 min-h-[62px] flex flex-col" role="form" aria-label="Message input">
+      {/* Image Preview */}
+      {imagePreview && (
+        <div className="flex items-center gap-2 mb-2 px-2 max-w-4xl mx-auto w-full">
+          <div className="relative inline-block">
+            <Image
+              src={imagePreview}
+              alt="Selected image"
+              width={80}
+              height={80}
+              className="rounded-lg object-cover"
+              style={{ maxHeight: '80px', width: 'auto' }}
+            />
+            <button
+              onClick={clearSelectedImage}
+              className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 transition-colors"
+              aria-label="Remove image"
+            >
+              <X className="h-3 w-3" />
+            </button>
+            {isUploadingImage && (
+              <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+                <Loader2 className="h-6 w-6 text-white animate-spin" />
+              </div>
+            )}
+          </div>
+          <span className="text-sm text-[#8696a0]">
+            {isUploadingImage ? 'Uploading...' : 'Ready to send'}
+          </span>
+        </div>
+      )}
 
+      <div className="flex items-end gap-2 w-full max-w-4xl mx-auto">
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={handleImageSelect}
+          className="hidden"
+          aria-label="Select image"
+        />
+
+        {/* Image Button - Outside input */}
+        <button 
+          onClick={() => fileInputRef.current?.click()}
+          className="p-2 mb-1 text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none"
+          aria-label="Attach image"
+        >
+          <ImageIcon className="h-6 w-6" />
+        </button>
+
+        {/* Input Field Container - WhatsApp Style with icons inside */}
+        <div className="flex-1 flex items-end bg-[#2a3942] rounded-[24px] px-3 py-2 outline-none">
           {/* Emoji Button - Inside input */}
-          <button className="p-2 text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none">
+          <button className="p-1 mr-2 text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none">
             <Smile className="h-6 w-6" />
           </button>
 
@@ -328,24 +604,28 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
             }}
             onKeyDown={handleKeyDown}
             placeholder="Type a message"
-            className="flex-1 min-h-[24px] max-h-[120px] resize-none border-0 bg-transparent px-2 py-1.5 focus:ring-0 focus:border-0 focus-visible:ring-0 placeholder:text-[#8696a0] leading-6 text-[15px] text-[#e9edef] outline-none"
+            className="flex-1 min-h-[24px] max-h-[120px] resize-none border-0 bg-transparent px-0 py-1 focus:ring-0 focus:border-0 focus-visible:ring-0 placeholder:text-[#8696a0] leading-6 text-[15px] text-[#d1d7db] outline-none"
             rows={1}
             aria-label="Message input"
           />
         </div>
 
         {/* Mic/Send Button - Outside input */}
-        {message.trim() ? (
-          <Button
+        {message.trim() || selectedImage ? (
+          <button
             onClick={handleSend}
-            size="icon"
-            className="h-11 w-11 rounded-full shrink-0 bg-[#00a884] hover:bg-[#06cf9c] text-white shadow-md transition-all duration-200"
+            disabled={isUploadingImage}
+            className="mb-1 p-2.5 bg-[#00a884] hover:bg-[#06cf9c] text-[#111b21] rounded-xl transition-colors outline-none focus:outline-none shadow-sm flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
             aria-label="Send message"
           >
-            <Send className="h-5 w-5" />
-          </Button>
+            {isUploadingImage ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Send className="h-5 w-5 fill-current" />
+            )}
+          </button>
         ) : (
-          <button className="h-11 w-11 flex items-center justify-center text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none">
+          <button className="mb-1 p-2.5 text-[#8696a0] hover:bg-[#2a3942]/50 rounded-xl transition-colors outline-none focus:outline-none flex items-center justify-center">
             <Mic className="h-6 w-6" />
           </button>
         )}
@@ -353,3 +633,15 @@ export function InputArea({ conversationId, currentUserId, currentUserName }: In
     </div>
   );
 }
+
+// Memoize component with custom comparison to prevent unnecessary re-renders
+export const InputArea = React.memo(InputAreaComponent, (prevProps, nextProps) => {
+  // Only re-render if these specific properties change
+  return (
+    prevProps.conversationId === nextProps.conversationId &&
+    prevProps.currentUserId === nextProps.currentUserId &&
+    prevProps.currentUserName === nextProps.currentUserName
+  );
+});
+
+InputArea.displayName = 'InputArea';

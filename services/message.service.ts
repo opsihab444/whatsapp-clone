@@ -439,6 +439,14 @@ export async function markConversationAsRead(
       };
     }
 
+    // First, get the messages that will be marked as read (to know which ones to broadcast)
+    const { data: messagesToUpdate } = await supabase
+      .from('messages')
+      .select('id, sender_id')
+      .eq('conversation_id', conversationId)
+      .neq('sender_id', user.id)
+      .in('status', ['sent', 'delivered']);
+
     // Update all unread messages in the conversation to 'read' status
     // Only update messages that are not sent by the current user
     const { error: updateError } = await supabase
@@ -475,6 +483,34 @@ export async function markConversationAsRead(
           message: unreadError.message,
         },
       };
+    }
+
+    // Broadcast read status update via WebSocket for instant delivery to sender
+    // This ensures the sender sees the "seen" avatar immediately
+    if (messagesToUpdate && messagesToUpdate.length > 0) {
+      const messageIds = messagesToUpdate.map(m => m.id);
+      const senderId = messagesToUpdate[0].sender_id; // All messages are from the same sender
+      
+      // Get reader's profile for the seen avatar
+      const { data: readerProfile } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url, email')
+        .eq('id', user.id)
+        .single();
+
+      // Broadcast to the typing channel (which all users subscribe to for all conversations)
+      await supabase.channel(`typing:${conversationId}`).send({
+        type: 'broadcast',
+        event: 'messages_read',
+        payload: {
+          conversationId,
+          messageIds,
+          readerId: user.id,
+          readerName: readerProfile?.full_name || readerProfile?.email?.split('@')[0] || null,
+          readerAvatarUrl: readerProfile?.avatar_url || null,
+          timestamp: new Date().toISOString(),
+        },
+      });
     }
 
     return { success: true, data: undefined };

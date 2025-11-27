@@ -1,44 +1,103 @@
 'use client';
 
-import { useRef } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { CSSProperties, ReactElement } from 'react';
+import { List, useListRef } from 'react-window';
 import { ChatRow } from './ChatRow';
+import { GroupRow } from '@/components/features/group/GroupRow';
 import { ChatListSkeleton } from './ChatListSkeleton';
-import { useChatList } from '@/hooks/useChatList';
-import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useAppReady } from '@/hooks/useAppReady';
 import { RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { Conversation, GroupConversation } from '@/types';
+
+type ChatItem = Conversation | GroupConversation;
 
 interface ChatListProps {
+  items: ChatItem[];
+  isLoading: boolean;
+  activeId?: string;
+  onSelect: (item: ChatItem) => void;
   searchQuery: string;
-  activeChatId?: string;
-  onChatSelect?: (chatId: string) => void;
+  currentUserId?: string;
+  isError?: boolean;
+  onRetry?: () => void;
+}
+
+// Row props for react-window
+interface RowProps {
+  items: ChatItem[];
+  activeId?: string;
+  onSelect: (item: ChatItem) => void;
+  searchQuery: string;
+  currentUserId?: string;
+}
+
+// Helper to check if item is a group
+function isGroup(item: ChatItem): item is GroupConversation {
+  return 'group' in item;
+}
+
+// Row component for virtualized list
+function ChatListRow({
+  index,
+  style,
+  items,
+  activeId,
+  onSelect,
+  searchQuery,
+  currentUserId,
+}: {
+  ariaAttributes: { "aria-posinset": number; "aria-setsize": number; role: "listitem" };
+  index: number;
+  style: CSSProperties;
+} & RowProps): ReactElement {
+  const item = items[index];
+
+  if (isGroup(item)) {
+    return (
+      <div style={style}>
+        <GroupRow
+          group={item}
+          isActive={activeId === item.id}
+          onClick={() => onSelect(item)}
+          currentUserId={currentUserId}
+          searchQuery={searchQuery}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div style={style}>
+      <ChatRow
+        conversation={item}
+        isActive={activeId === item.id}
+        onClick={() => onSelect(item)}
+        searchQuery={searchQuery}
+        currentUserId={currentUserId}
+      />
+    </div>
+  );
 }
 
 /**
  * Virtualized conversation list component
- * Uses @tanstack/react-virtual for performance with large lists
- * Integrates with useChatList hook for data fetching
- * 
- * Loading Strategy: Shows skeleton until ALL app data is ready
- * This ensures chatlist, header, and messages all appear together
+ * Uses react-window for performance with large lists
  */
-export function ChatList({ searchQuery, activeChatId, onChatSelect }: ChatListProps) {
-  const { conversations, isLoading, isError, error, refetch } = useChatList(searchQuery);
-  const { data: currentUser } = useCurrentUser();
+export function ChatList({ 
+  items, 
+  isLoading, 
+  activeId, 
+  onSelect, 
+  searchQuery, 
+  currentUserId,
+  isError,
+  onRetry
+}: ChatListProps) {
   const isAppReady = useAppReady();
-  const parentRef = useRef<HTMLDivElement>(null);
+  const listRef = useListRef(null);
 
-  const rowVirtualizer = useVirtualizer({
-    count: conversations?.length || 0,
-    getScrollElement: () => parentRef.current,
-    estimateSize: () => 80, // Fixed height from ChatRow
-    overscan: 5,
-  });
-
-  // Show skeleton until ALL critical data is loaded (conversations + currentUser)
-  // This ensures everything appears together, not sequentially
+  // Show skeleton until ALL critical data is loaded
   if (isLoading || !isAppReady) {
     return <ChatListSkeleton />;
   }
@@ -49,11 +108,8 @@ export function ChatList({ searchQuery, activeChatId, onChatSelect }: ChatListPr
       <div className="flex items-center justify-center h-full p-4 animate-fade-in">
         <div className="text-center space-y-3">
           <p className="text-sm font-medium text-destructive mb-2">Failed to load conversations</p>
-          <p className="text-xs text-muted-foreground">
-            {error instanceof Error ? error.message : 'An unknown error occurred'}
-          </p>
           <Button
-            onClick={() => refetch()}
+            onClick={onRetry}
             variant="outline"
             size="sm"
             className="mt-2"
@@ -67,8 +123,8 @@ export function ChatList({ searchQuery, activeChatId, onChatSelect }: ChatListPr
     );
   }
 
-  // Empty state - no conversations
-  if (!conversations || conversations.length === 0) {
+  // Empty state
+  if (!items || items.length === 0) {
     return (
       <div className="flex items-center justify-center h-full p-4 animate-fade-in" role="status">
         <div className="text-center">
@@ -83,46 +139,21 @@ export function ChatList({ searchQuery, activeChatId, onChatSelect }: ChatListPr
     );
   }
 
-  // Render virtualized list
   return (
-    <div
-      ref={parentRef}
-      role="list"
-      aria-label="Conversations"
-      className="h-full w-full overflow-y-auto contain-strict scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
-    >
-      <div
-        style={{
-          height: `${rowVirtualizer.getTotalSize()}px`,
-          width: '100%',
-          position: 'relative',
-        }}
-      >
-        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-          const conversation = conversations[virtualRow.index];
-          return (
-            <div
-              key={virtualRow.key}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: `${virtualRow.size}px`,
-                transform: `translateY(${virtualRow.start}px)`,
-              }}
-            >
-              <ChatRow
-                conversation={conversation}
-                isActive={activeChatId === conversation.id}
-                onClick={() => onChatSelect?.(conversation.id)}
-                searchQuery={searchQuery}
-                currentUserId={currentUser?.id}
-              />
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <List
+      listRef={listRef}
+      rowCount={items.length}
+      rowHeight={80}
+      rowComponent={ChatListRow}
+      rowProps={{
+        items,
+        activeId,
+        onSelect,
+        searchQuery,
+        currentUserId,
+      }}
+      className="h-full w-full scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
+      overscanCount={5}
+    />
   );
 }

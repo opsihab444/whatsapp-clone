@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useMemo, useState, useEffect, useLayoutEffect, useCallback } from 'react';
+import React, { useRef, useMemo, useState, useEffect, useCallback } from 'react';
 import { useMessages } from '@/hooks/useMessages';
 import { useAppReady } from '@/hooks/useAppReady';
 import { MessageBubble } from './MessageBubble';
@@ -12,45 +12,26 @@ import { Loader2, ArrowDown, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useUIStore } from '@/store/ui.store';
 import { cn } from '@/lib/utils';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
 // ------------------------------------------------------------------
 // 1. ISOLATED COMPONENTS
 // ------------------------------------------------------------------
 
-const TypingHeader = ({ 
-    conversationId, 
-    onTypingChange 
-}: { 
-    conversationId: string;
-    onTypingChange?: (isTyping: boolean) => void;
-}) => {
-    const typingUser = useUIStore((state) => state.typingUsers.get(conversationId));
-    const prevTypingRef = useRef<boolean>(false);
-
-    useEffect(() => {
-        const isTyping = !!typingUser;
-        if (isTyping !== prevTypingRef.current) {
-            prevTypingRef.current = isTyping;
-            onTypingChange?.(isTyping);
-        }
-    }, [typingUser, onTypingChange]);
-
-    if (!typingUser) return null;
-
-    return <TypingIndicator userName={typingUser.userName} />;
-};
-
 const LoadingIndicator = ({ isFetching }: { isFetching: boolean }) => {
     if (!isFetching) return null;
+
     return (
-        <div className="flex justify-center py-4">
-            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+        <div className="absolute top-0 left-0 right-0 z-10 flex justify-center py-3 pointer-events-none">
+            <div className="bg-background/80 backdrop-blur-sm rounded-full px-4 py-2 shadow-md">
+                <Loader2 className="w-5 h-5 animate-spin text-primary" />
+            </div>
         </div>
     );
 };
 
 // ------------------------------------------------------------------
-// 2. MAIN COMPONENT - WhatsApp Style Natural Scroll
+// 2. MAIN COMPONENT
 // ------------------------------------------------------------------
 
 interface MessageListProps {
@@ -60,186 +41,250 @@ interface MessageListProps {
     otherUserName?: string | null;
 }
 
-export function MessageList({ conversationId, currentUserId, otherUserAvatarUrl, otherUserName }: MessageListProps) {
-    const { 
-        data, 
-        fetchNextPage, 
-        hasNextPage, 
-        isFetchingNextPage, 
-        isLoading, 
-        isError, 
-        refetch 
+function MessageListComponent({ conversationId, currentUserId, otherUserAvatarUrl, otherUserName }: MessageListProps) {
+    const {
+        data,
+        fetchNextPage,
+        hasNextPage,
+        isFetchingNextPage,
+        isLoading,
+        isError,
+        refetch
     } = useMessages(conversationId);
-    
-    // Check if ALL app data is ready (conversations + currentUser)
+
     const isAppReady = useAppReady();
-    
-    const scrollContainerRef = useRef<HTMLDivElement>(null);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-    const isInitialLoadRef = useRef(true);
-    const savedScrollInfoRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
-    const prevFetchingRef = useRef(false);
-    const prevMessageCountRef = useRef(0);
+    const parentRef = useRef<HTMLDivElement>(null);
     const [showScrollBottom, setShowScrollBottom] = useState(false);
-    const [isNearBottom, setIsNearBottom] = useState(true);
 
-    // Flatten and reverse messages (oldest first for display)
+    // Get typing status directly here to include in virtual list
+    const typingUser = useUIStore((state) => state.typingUsers.get(conversationId));
+    const isTyping = !!typingUser;
+
+    // Process messages: Deduplicate and Keep Newest -> Oldest
     const messages = useMemo(() => {
-        const allMessages = data?.pages.flat() || [];
-        // Messages come DESC from API, reverse to show oldest first (top) to newest (bottom)
-        return [...allMessages].reverse();
-    }, [data]);
+        if (!data?.pages) return [];
+        const allMessages = data.pages.flat();
+        const seen = new Set<string>();
+        const unique = [];
+        // data.pages is Newest -> Oldest.
+        for (const msg of allMessages) {
+            if (!seen.has(msg.id)) {
+                seen.add(msg.id);
+                unique.push(msg);
+            }
+        }
+        return unique; // [Newest, ..., Oldest]
+    }, [data?.pages]);
 
-    // Initial scroll to bottom - runs after DOM is painted
-    useLayoutEffect(() => {
-        if (isInitialLoadRef.current && messages.length > 0 && !isLoading && isAppReady) {
-            const container = scrollContainerRef.current;
-            if (container) {
-                // Use requestAnimationFrame to ensure DOM is fully rendered
-                requestAnimationFrame(() => {
-                    if (container) {
-                        container.scrollTop = container.scrollHeight;
+    // Create a unified list of items for virtualization
+    // Order for scale-y-[-1]:
+    // Visual Bottom (Physical Top, Index 0) -> [Typing, Newest, ..., Oldest, Loader] -> Visual Top (Physical Bottom, Index N)
+    const virtualItemsList = useMemo(() => {
+        const items: Array<{ type: 'loader' } | { type: 'message'; data: typeof messages[0] } | { type: 'typing' }> = [];
+
+        // Index 0: Typing (Visual Bottom)
+        if (isTyping) {
+            items.push({ type: 'typing' });
+        }
+
+        // Messages (Newest -> Oldest)
+        messages.forEach(msg => {
+            items.push({ type: 'message', data: msg });
+        });
+
+        // Index N: Loader (Visual Top)
+        if (hasNextPage) {
+            items.push({ type: 'loader' });
+        }
+
+        return items;
+    }, [messages, hasNextPage, isTyping]);
+
+    // Cache measured sizes to prevent jump on re-render
+    const measuredSizesRef = useRef<Map<string, number>>(new Map());
+
+    // Get stable size estimate based on cached measurements
+    const getEstimatedSize = useCallback((index: number) => {
+        const item = virtualItemsList[index];
+        if (!item) return 60;
+
+        if (item.type === 'typing') return 40;
+        if (item.type === 'loader') return 50;
+
+        // For messages, check if we have a cached size
+        const cachedSize = measuredSizesRef.current.get(item.data.id);
+        if (cachedSize) return cachedSize;
+
+        // Image messages - use saved dimensions from database for accurate estimate
+        if (item.data.type === 'image') {
+            const { media_width, media_height } = item.data;
+            if (media_width && media_height) {
+                // Calculate display height based on saved dimensions (max 300px width constraint)
+                const maxSize = 300;
+                let displayHeight = media_height;
+                if (media_width > maxSize || media_height > maxSize) {
+                    if (media_width > media_height) {
+                        displayHeight = Math.round((media_height / media_width) * maxSize);
+                    } else {
+                        displayHeight = maxSize;
                     }
-                });
+                }
+                // Add padding for bubble (8px top/bottom) + margin (8px)
+                return displayHeight + 24;
             }
-            isInitialLoadRef.current = false;
+            // Fallback for images without saved dimensions - use consistent 200px
+            return 224; // 200px image + 24px padding
         }
-    }, [messages.length, isLoading, isAppReady]);
 
-    // Restore scroll position after loading older messages
-    useLayoutEffect(() => {
-        const container = scrollContainerRef.current;
-        if (!container) return;
+        // Estimate based on content length
+        const contentLength = item.data.content?.length || 0;
+        if (contentLength > 200) return 120;
+        if (contentLength > 100) return 80;
+        return 60;
+    }, [virtualItemsList]);
 
-        // Detect when fetching transitions from true to false (loading complete)
-        const wasFetching = prevFetchingRef.current;
-        prevFetchingRef.current = isFetchingNextPage;
+    // Virtualizer with stable size estimation
+    const rowVirtualizer = useVirtualizer({
+        count: virtualItemsList.length,
+        getScrollElement: () => parentRef.current,
+        estimateSize: getEstimatedSize,
+        overscan: 8, // Increased overscan for smoother experience
+        paddingStart: 0,
+        paddingEnd: 0,
+        // Use message ID as key for stable identity
+        getItemKey: useCallback((index: number) => {
+            const item = virtualItemsList[index];
+            if (item.type === 'typing') return 'typing';
+            if (item.type === 'loader') return 'loader';
+            return item.data.id;
+        }, [virtualItemsList]),
+    });
 
-        if (wasFetching && !isFetchingNextPage && savedScrollInfoRef.current) {
-            const { scrollHeight: oldScrollHeight, scrollTop: oldScrollTop } = savedScrollInfoRef.current;
-            const newScrollHeight = container.scrollHeight;
-            const heightDiff = newScrollHeight - oldScrollHeight;
-            
-            // Restore scroll position
-            container.scrollTop = oldScrollTop + heightDiff;
-            savedScrollInfoRef.current = null;
-        }
-    }, [isFetchingNextPage, messages]);
-
-    // Auto-scroll to bottom ONLY when a NEW message arrives (not when loading older messages)
-    useLayoutEffect(() => {
-        const prevCount = prevMessageCountRef.current;
-        const currentCount = messages.length;
-        
-        // Skip if count hasn't changed
-        if (prevCount === currentCount) return;
-        
-        const isNewMessage = currentCount > prevCount && (currentCount - prevCount) <= 3;
-        prevMessageCountRef.current = currentCount;
-
-        // Only scroll if:
-        // 1. Not initial load
-        // 2. Not fetching older messages
-        // 3. User is near bottom
-        // 4. Message count increased by a small amount (new message, not page load)
-        if (isNearBottom && !isInitialLoadRef.current && !isFetchingNextPage && isNewMessage) {
-            const container = scrollContainerRef.current;
-            if (container) {
-                // Use direct scrollTop instead of scrollIntoView for smoother behavior
-                requestAnimationFrame(() => {
-                    container.scrollTop = container.scrollHeight;
-                });
+    // Cache measured sizes when items are measured
+    useEffect(() => {
+        const items = rowVirtualizer.getVirtualItems();
+        items.forEach(item => {
+            const virtualItem = virtualItemsList[item.index];
+            if (virtualItem?.type === 'message' && item.size > 0) {
+                measuredSizesRef.current.set(virtualItem.data.id, item.size);
             }
-        }
-    }, [messages, isNearBottom, isFetchingNextPage]);
+        });
+    }, [rowVirtualizer.getVirtualItems(), virtualItemsList]);
 
-    // Scroll event handler
+    // ------------------------------------------------------------------
+    // SCROLL HANDLING (The Tricky Part)
+    // ------------------------------------------------------------------
+
+    // 1. Fix Mouse Wheel Direction (Callback Ref Pattern)
+    // We use a callback ref to ensure the listener is attached IMMEDIATELY when the node is created.
+    // This fixes the race condition where useEffect might run too late or not trigger on initial render.
+
+    const handleWheel = useCallback((e: WheelEvent) => {
+        if (!parentRef.current) return;
+        e.preventDefault();
+        // Invert deltaY: 
+        // Wheel Down (positive) -> Want to go Down Visually -> Up Physically -> Decrease scrollTop
+        // Wheel Up (negative) -> Want to go Up Visually -> Down Physically -> Increase scrollTop
+        parentRef.current.scrollTop -= e.deltaY;
+    }, []);
+
+    const setRef = useCallback((node: HTMLDivElement | null) => {
+        if (parentRef.current) {
+            // Cleanup old listener
+            parentRef.current.removeEventListener('wheel', handleWheel);
+        }
+
+        parentRef.current = node;
+
+        if (node) {
+            // Attach new listener
+            node.addEventListener('wheel', handleWheel, { passive: false });
+        }
+    }, [handleWheel]);
+
+    // 2. Handle Scroll Events (Infinite Load & Scroll Button)
     const handleScroll = useCallback(() => {
-        const container = scrollContainerRef.current;
+        const container = parentRef.current;
         if (!container) return;
 
         const { scrollTop, scrollHeight, clientHeight } = container;
-        
-        // Check if near bottom (within 150px)
-        const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-        setIsNearBottom(distanceFromBottom < 150);
-        setShowScrollBottom(distanceFromBottom > 150);
 
-        // Load more when scrolled near top (and not already loading)
-        if (scrollTop < 100 && hasNextPage && !isFetchingNextPage) {
-            // Save current scroll position before loading
-            savedScrollInfoRef.current = { scrollHeight, scrollTop };
+        // With scale-y-[-1]:
+        // scrollTop 0 = Physical Top = Visual Bottom (Newest)
+        // scrollTop Max = Physical Bottom = Visual Top (Oldest)
+
+        // Check if near bottom (Visual Bottom = scrollTop 0)
+        const isAtBottom = scrollTop < 150;
+        setShowScrollBottom(!isAtBottom);
+
+        // Load more when near top (Visual Top = scrollTop Max)
+        const distanceFromPhysicalBottom = scrollHeight - clientHeight - scrollTop;
+        if (distanceFromPhysicalBottom < 150 && hasNextPage && !isFetchingNextPage) {
             fetchNextPage();
         }
     }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-    // Attach scroll listener
+    // Attach scroll listener using useEffect (this is fine as it's for logic, not critical UI feel)
+    // But we need to make sure it attaches to the current node.
+    // Since we are using setRef, we can't easily attach scroll listener there without duplicating logic.
+    // We'll stick to useEffect for scroll listener, but add parentRef.current as dependency? No, refs don't trigger effects.
+    // We'll rely on the fact that when isLoading changes, this effect re-runs.
     useEffect(() => {
-        const container = scrollContainerRef.current;
+        const container = parentRef.current;
         if (!container) return;
-
         container.addEventListener('scroll', handleScroll, { passive: true });
         return () => container.removeEventListener('scroll', handleScroll);
-    }, [handleScroll]);
+    }, [handleScroll, isLoading, isAppReady, currentUserId]); // Re-attach when data loads
 
-    // Reset on conversation change
-    useEffect(() => {
-        isInitialLoadRef.current = true;
-        savedScrollInfoRef.current = null;
-        prevFetchingRef.current = false;
-        prevMessageCountRef.current = 0;
-        setIsNearBottom(true);
-        setShowScrollBottom(false);
-    }, [conversationId]);
-
-    // Ensure scroll to bottom after content renders (handles page refresh)
-    useEffect(() => {
-        if (!isLoading && messages.length > 0 && isAppReady && isInitialLoadRef.current) {
-            const container = scrollContainerRef.current;
-            if (container) {
-                // Double RAF to ensure content is fully painted
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        if (container && isInitialLoadRef.current) {
-                            container.scrollTop = container.scrollHeight;
-                            isInitialLoadRef.current = false;
-                        }
-                    });
-                });
-            }
-        }
-    }, [isLoading, messages.length, isAppReady]);
-
-    const handleScrollToBottom = useCallback(() => {
-        const container = scrollContainerRef.current;
+    const handleScrollToBottom = () => {
+        const container = parentRef.current;
         if (container) {
-            container.scrollTo({
-                top: container.scrollHeight,
-                behavior: 'smooth'
-            });
+            // Scroll to bottom (Visual Bottom = Physical Top = 0)
+            container.scrollTo({ top: 0, behavior: 'smooth' });
         }
-    }, []);
+    };
 
-    // Auto scroll when typing indicator appears
-    const handleTypingChange = useCallback((isTyping: boolean) => {
-        if (isTyping && isNearBottom) {
-            const container = scrollContainerRef.current;
-            if (container) {
-                // Small delay to let the typing indicator render first
-                requestAnimationFrame(() => {
-                    container.scrollTo({
-                        top: container.scrollHeight,
-                        behavior: 'smooth'
-                    });
-                });
+    // Pre-compute showTail and status info
+    // Note: messages is Newest -> Oldest
+    const messageTailMap = useMemo(() => {
+        const map = new Map<string, boolean>();
+        for (let i = 0; i < messages.length; i++) {
+            const msg = messages[i];
+            // Tail logic: Show tail if the NEXT OLDER message (index i+1) is different sender
+            // This means the tail appears on the first (oldest) message in each consecutive group
+            const olderMsg = i < messages.length - 1 ? messages[i + 1] : null;
+            map.set(msg.id, !olderMsg || olderMsg.sender_id !== msg.sender_id);
+        }
+        return map;
+    }, [messages]);
+
+    const messageStatusInfo = useMemo(() => {
+        let lastSendingOwnMessageId: string | null = null;
+        let lastReadOwnMessageId: string | null = null;
+        let lastSentOwnMessageId: string | null = null;
+
+        // Iterate from Newest (Start) to Oldest (End)
+        for (let i = 0; i < messages.length; i++) {
+            const msg = messages[i];
+            if (msg.sender_id === currentUserId) {
+                if (!lastSendingOwnMessageId && (msg.status === 'sending' || msg.status === 'queued')) {
+                    lastSendingOwnMessageId = msg.id;
+                }
+                if (!lastReadOwnMessageId && msg.status === 'read') {
+                    lastReadOwnMessageId = msg.id;
+                }
+                if (!lastSentOwnMessageId && (msg.status === 'sent' || msg.status === 'delivered')) {
+                    lastSentOwnMessageId = msg.id;
+                }
             }
         }
-    }, [isNearBottom]);
 
-    // Show skeleton in two cases:
-    // 1. Initial page load (!isAppReady) - wait for all app data
-    // 2. Messages still loading for this conversation
-    // On conversation switch, isAppReady is true so only messages loading matters
+        return {
+            lastReadOwnMessageId,
+            pendingStatusMessageId: lastSendingOwnMessageId || lastSentOwnMessageId
+        };
+    }, [messages, currentUserId]);
+
     if (isLoading || !currentUserId || !isAppReady) return <MessageListSkeleton />;
 
     if (isError) {
@@ -253,14 +298,14 @@ export function MessageList({ conversationId, currentUserId, otherUserAvatarUrl,
         );
     }
 
-    if (messages.length === 0) {
+    if (messages.length === 0 && !hasNextPage) {
         return (
             <div className="flex flex-col h-full">
                 <div className="flex-1 flex items-center justify-center text-muted-foreground">
                     No messages yet. Say hello! 👋
                 </div>
                 <div className="p-4">
-                    <TypingHeader conversationId={conversationId} onTypingChange={handleTypingChange} />
+                    {isTyping && <TypingIndicator userName={typingUser?.userName} />}
                 </div>
             </div>
         );
@@ -268,62 +313,57 @@ export function MessageList({ conversationId, currentUserId, otherUserAvatarUrl,
 
     return (
         <div className="relative h-full chat-background">
-            {/* Scroll Container */}
+            <LoadingIndicator isFetching={isFetchingNextPage} />
+
+            {/* 
+                scale-y-[-1] trick:
+                - Container is flipped. Top is Bottom.
+                - Items are flipped back.
+                - Scrollbar is at Physical Top (Visual Bottom).
+                - Default scroll position is 0 (Visual Bottom).
+            */}
             <div
-                ref={scrollContainerRef}
-                className="h-full overflow-y-auto px-1 md:px-2 scrollbar-thin"
+                ref={setRef}
+                className="h-full overflow-y-auto scrollbar-thin flex flex-col"
+                style={{ transform: 'scaleY(-1)' }}
             >
-                {/* Loading indicator at top */}
-                <LoadingIndicator isFetching={isFetchingNextPage} />
+                <div
+                    style={{
+                        height: `${rowVirtualizer.getTotalSize()}px`,
+                        width: '100%',
+                        position: 'relative',
+                    }}
+                >
+                    {rowVirtualizer.getVirtualItems().map((virtualItem) => {
+                        const item = virtualItemsList[virtualItem.index];
 
-                {/* Messages - oldest at top, newest at bottom */}
-                <div className="flex flex-col gap-1 py-2">
-                    {(() => {
-                        // Find the last message from current user for each status type
-                        // Facebook Messenger style: show BOTH read avatar AND sending/sent status
-                        let lastSendingOwnMessageId: string | null = null;
-                        let lastReadOwnMessageId: string | null = null;
-                        let lastSentOwnMessageId: string | null = null;
-                        
-                        // Iterate from end to find last own messages by status
-                        for (let i = messages.length - 1; i >= 0; i--) {
-                            const msg = messages[i];
-                            if (msg.sender_id === currentUserId) {
-                                // Check for sending/queued status first
-                                if (!lastSendingOwnMessageId && (msg.status === 'sending' || msg.status === 'queued')) {
-                                    lastSendingOwnMessageId = msg.id;
-                                }
-                                if (!lastReadOwnMessageId && msg.status === 'read') {
-                                    lastReadOwnMessageId = msg.id;
-                                }
-                                if (!lastSentOwnMessageId && (msg.status === 'sent' || msg.status === 'delivered')) {
-                                    lastSentOwnMessageId = msg.id;
-                                }
-                            }
-                        }
-
-                        // Determine which message should show sending/sent status
-                        // This is separate from read avatar
-                        const pendingStatusMessageId = lastSendingOwnMessageId || lastSentOwnMessageId;
-                        
-                        return messages.map((message, index) => {
-                            // Check if this is the first message in a group from the same sender
-                            const prevMessage = index > 0 ? messages[index - 1] : null;
-                            const showTail = !prevMessage || prevMessage.sender_id !== message.sender_id;
-                            
-                            const isOwnMessage = message.sender_id === currentUserId;
-                            
-                            // Show status indicator on:
-                            // 1. Last read message (shows avatar)
-                            // 2. Last sending/sent message (shows Sending.../Sent text)
-                            // Both can be shown simultaneously on different messages
-                            const showSeenAvatar = isOwnMessage && (
-                                message.id === lastReadOwnMessageId ||
-                                message.id === pendingStatusMessageId
+                        // Render based on type
+                        let content;
+                        if (item.type === 'loader') {
+                            content = (
+                                <div className="flex justify-center py-4">
+                                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                                </div>
                             );
-                            
-                            return (
-                                <div key={message.id} className="px-2">
+                        } else if (item.type === 'typing') {
+                            content = (
+                                <div className="px-4 py-2">
+                                    <TypingIndicator userName={typingUser?.userName} />
+                                </div>
+                            );
+                        } else {
+                            const message = item.data;
+                            const isOwnMessage = message.sender_id === currentUserId;
+                            const showTail = messageTailMap.get(message.id) ?? true;
+                            const showSeenAvatar = isOwnMessage && (
+                                message.id === messageStatusInfo.lastReadOwnMessageId ||
+                                message.id === messageStatusInfo.pendingStatusMessageId
+                            );
+                            // Priority load for first 3 image messages (latest ones)
+                            const isLatestImage = message.type === 'image' && virtualItem.index < 5;
+
+                            content = (
+                                <div className="px-2 md:px-3 py-0.5">
                                     <MessageBubble
                                         message={message}
                                         isOwnMessage={isOwnMessage}
@@ -332,18 +372,30 @@ export function MessageList({ conversationId, currentUserId, otherUserAvatarUrl,
                                         showSeenAvatar={showSeenAvatar}
                                         recipientAvatarUrl={otherUserAvatarUrl}
                                         recipientName={otherUserName}
+                                        isLatestImage={isLatestImage}
                                     />
                                 </div>
                             );
-                        });
-                    })()}
+                        }
+
+                        return (
+                            <div
+                                key={virtualItem.key}
+                                ref={rowVirtualizer.measureElement}
+                                data-index={virtualItem.index}
+                                style={{
+                                    position: 'absolute',
+                                    top: 0,
+                                    left: 0,
+                                    width: '100%',
+                                    transform: `translateY(${virtualItem.start}px) scaleY(-1)`,
+                                }}
+                            >
+                                {content}
+                            </div>
+                        );
+                    })}
                 </div>
-
-                {/* Typing indicator at bottom */}
-                <TypingHeader conversationId={conversationId} onTypingChange={handleTypingChange} />
-
-                {/* Scroll anchor */}
-                <div ref={messagesEndRef} />
             </div>
 
             {/* Edit & Delete Modals */}
@@ -371,3 +423,16 @@ export function MessageList({ conversationId, currentUserId, otherUserAvatarUrl,
         </div>
     );
 }
+
+// Memoize component with custom comparison to prevent unnecessary re-renders
+export const MessageList = React.memo(MessageListComponent, (prevProps, nextProps) => {
+    // Only re-render if these specific properties change
+    return (
+        prevProps.conversationId === nextProps.conversationId &&
+        prevProps.currentUserId === nextProps.currentUserId &&
+        prevProps.otherUserAvatarUrl === nextProps.otherUserAvatarUrl &&
+        prevProps.otherUserName === nextProps.otherUserName
+    );
+});
+
+MessageList.displayName = 'MessageList';

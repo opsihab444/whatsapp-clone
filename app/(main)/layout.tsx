@@ -18,6 +18,8 @@ import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { CreateGroupModal } from '@/components/features/group/CreateGroupModal';
 import { GroupRow } from '@/components/features/group/GroupRow';
 import { useGroups } from '@/hooks/useGroups';
+import { useChatList } from '@/hooks/useChatList';
+import type { Conversation, GroupConversation } from '@/types';
 
 export default function MainLayout({
   children,
@@ -35,6 +37,51 @@ export default function MainLayout({
 
   // Use cached current user hook instead of manual fetch
   const { data: currentUser } = useCurrentUser();
+
+  // Fetch groups
+  const { 
+    groups, 
+    isLoading: isGroupsLoading, 
+    isError: isGroupsError, 
+    refetch: refetchGroups 
+  } = useGroups(searchQuery);
+
+  // Fetch chats
+  const { 
+    conversations, 
+    isLoading: isChatsLoading, 
+    isError: isChatsError, 
+    refetch: refetchChats 
+  } = useChatList(searchQuery);
+
+  // Merge and sort items
+  const mergedItems = useMemo(() => {
+    const allItems: (Conversation | GroupConversation)[] = [...(groups || []), ...(conversations || [])];
+    
+    return allItems.sort((a, b) => {
+      // Get time for item A
+      let timeA = 0;
+      if (a.last_message_time) {
+        timeA = new Date(a.last_message_time).getTime();
+      } else if ('group' in a) {
+        timeA = new Date(a.group.created_at).getTime();
+      } else {
+        timeA = new Date(a.created_at).getTime();
+      }
+
+      // Get time for item B
+      let timeB = 0;
+      if (b.last_message_time) {
+        timeB = new Date(b.last_message_time).getTime();
+      } else if ('group' in b) {
+        timeB = new Date(b.group.created_at).getTime();
+      } else {
+        timeB = new Date(b.created_at).getTime();
+      }
+
+      return timeB - timeA;
+    });
+  }, [groups, conversations]);
 
   // Memoize user info to prevent unnecessary re-renders
   const userInfo = useMemo(() => {
@@ -57,9 +104,6 @@ export default function MainLayout({
   // Extract active chat/group ID from pathname
   const activeChatId = pathname.match(/\/c\/([^/]+)/)?.[1] || null;
   const activeGroupId = pathname.match(/\/g\/([^/]+)/)?.[1] || null;
-
-  // Fetch groups
-  const { groups } = useGroups(searchQuery);
 
   // Close sidebar when navigating to a chat on mobile
   useEffect(() => {
@@ -228,6 +272,7 @@ export default function MainLayout({
                         isActive={activeGroupId === group.id}
                         onClick={() => handleGroupSelect(group.id)}
                         currentUserId={currentUser?.id}
+                        searchQuery={searchQuery}
                       />
                     ))
                   ) : (
@@ -241,25 +286,24 @@ export default function MainLayout({
                 </div>
               ) : (
                 <div className="h-full overflow-y-auto">
-                  {/* Groups Section in All tab */}
-                  {groups && groups.length > 0 && (
-                    <div>
-                      {groups.map((group) => (
-                        <GroupRow
-                          key={group.id}
-                          group={group}
-                          isActive={activeGroupId === group.id}
-                          onClick={() => handleGroupSelect(group.id)}
-                          currentUserId={currentUser?.id}
-                        />
-                      ))}
-                    </div>
-                  )}
-                  {/* Chats */}
                   <ChatList
+                    items={mergedItems}
+                    isLoading={isGroupsLoading || isChatsLoading}
+                    activeId={activeChatId || activeGroupId || undefined}
+                    onSelect={(item: Conversation | GroupConversation) => {
+                      if ('group' in item) {
+                        handleGroupSelect(item.id);
+                      } else {
+                        handleChatSelect(item.id);
+                      }
+                    }}
                     searchQuery={searchQuery}
-                    activeChatId={activeChatId || undefined}
-                    onChatSelect={handleChatSelect}
+                    currentUserId={currentUser?.id}
+                    isError={isGroupsError || isChatsError}
+                    onRetry={() => {
+                      if (isGroupsError) refetchGroups();
+                      if (isChatsError) refetchChats();
+                    }}
                   />
                 </div>
               )}

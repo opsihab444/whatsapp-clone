@@ -1,7 +1,7 @@
 // Core type definitions for the WhatsApp clone application
 
 export type MessageStatus = 'queued' | 'sending' | 'sent' | 'delivered' | 'read';
-export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'file';
+export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'file' | 'system';
 
 export interface Profile {
   id: string;
@@ -52,9 +52,14 @@ export interface Group {
   description: string | null;
   avatar_url: string | null;
   created_by: string;
+  last_message_content: string | null;
+  last_message_time: string | null;
+  last_message_sender_id: string | null;
+  last_message_sender_name: string | null;
   created_at: string;
   updated_at: string;
   member_count?: number;
+  unread_count?: number;
 }
 
 export interface GroupMember {

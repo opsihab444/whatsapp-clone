@@ -22,7 +22,7 @@ A production-ready, high-performance real-time chat application built with Next.
 - **State Management**: 
   - TanStack Query v5 (server state)
   - Zustand (client UI state)
-- **Performance**: @tanstack/react-virtual, React.memo
+- **Performance**: react-window, React.memo
 - **Validation**: Zod + React Hook Form
 - **Testing**: Vitest + fast-check (property-based testing)
 

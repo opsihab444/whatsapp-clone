@@ -129,6 +129,24 @@ export async function getGroups(
 
     const unreadMap = new Map(unreadCounts?.map((u) => [u.group_id, u.count]) || []);
 
+    // Get sender names for groups that don't have last_message_sender_name
+    const senderIds = groups
+      .filter((g) => g.last_message_sender_id && !g.last_message_sender_name)
+      .map((g) => g.last_message_sender_id);
+    
+    let senderNameMap = new Map<string, string>();
+    if (senderIds.length > 0) {
+      const { data: senderProfiles } = await supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .in('id', senderIds);
+      
+      senderProfiles?.forEach((p) => {
+        const name = p.full_name || p.email?.split('@')[0] || null;
+        if (name) senderNameMap.set(p.id, name);
+      });
+    }
+
     const result: GroupConversation[] = groups.map((group) => ({
       id: group.id,
       group: {
@@ -143,7 +161,7 @@ export async function getGroups(
       last_message_content: group.last_message_content,
       last_message_time: group.last_message_time,
       last_message_sender_id: group.last_message_sender_id,
-      last_message_sender_name: group.last_message_sender_name,
+      last_message_sender_name: group.last_message_sender_name || senderNameMap.get(group.last_message_sender_id) || null,
       unread_count: unreadMap.get(group.id) || 0,
     }));
 
@@ -247,6 +265,20 @@ export async function addGroupMember(
       };
     }
 
+    // Get added user's profile for system message
+    const { data: addedUserProfile } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', userId)
+      .single();
+
+    // Get current user's profile for system message
+    const { data: currentUserProfile } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', user.id)
+      .single();
+
     const { error } = await supabase
       .from('group_members')
       .insert({ group_id: groupId, user_id: userId, role: 'member' });
@@ -257,6 +289,19 @@ export async function addGroupMember(
         error: { type: 'NETWORK_ERROR', message: error.message },
       };
     }
+
+    // Send system message about member addition
+    const addedUserName = addedUserProfile?.full_name || addedUserProfile?.email?.split('@')[0] || 'Someone';
+    const currentUserName = currentUserProfile?.full_name || currentUserProfile?.email?.split('@')[0] || 'Admin';
+    
+    await supabase
+      .from('group_messages')
+      .insert({
+        group_id: groupId,
+        sender_id: user.id,
+        content: `${currentUserName} added ${addedUserName}`,
+        type: 'system',
+      });
 
     return { success: true, data: undefined };
   } catch (error) {
@@ -310,6 +355,20 @@ export async function removeGroupMember(
       };
     }
 
+    // Get removed user's profile for system message
+    const { data: removedUserProfile } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', userId)
+      .single();
+
+    // Get current user's profile for system message
+    const { data: currentUserProfile } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', user.id)
+      .single();
+
     const { error } = await supabase
       .from('group_members')
       .delete()
@@ -322,6 +381,25 @@ export async function removeGroupMember(
         error: { type: 'NETWORK_ERROR', message: error.message },
       };
     }
+
+    // Send system message about member removal
+    const removedUserName = removedUserProfile?.full_name || removedUserProfile?.email?.split('@')[0] || 'Someone';
+    const currentUserName = currentUserProfile?.full_name || currentUserProfile?.email?.split('@')[0] || 'Admin';
+    
+    // Different message for self-leave vs kick
+    const isLeaving = userId === user.id;
+    const systemMessage = isLeaving 
+      ? `${currentUserName} left the group`
+      : `${currentUserName} removed ${removedUserName}`;
+    
+    await supabase
+      .from('group_messages')
+      .insert({
+        group_id: groupId,
+        sender_id: user.id,
+        content: systemMessage,
+        type: 'system',
+      });
 
     return { success: true, data: undefined };
   } catch (error) {
@@ -394,11 +472,12 @@ export async function searchUsersForGroup(
 
 
 /**
- * Get messages for a group
+ * Get messages for a group with pagination support
  */
 export async function getGroupMessages(
   supabase: SupabaseClient,
   groupId: string,
+  offset: number = 0,
   limit: number = 50
 ): Promise<ServiceResult<GroupMessage[]>> {
   try {
@@ -431,7 +510,7 @@ export async function getGroupMessages(
       `)
       .eq('group_id', groupId)
       .order('created_at', { ascending: false })
-      .limit(limit);
+      .range(offset, offset + limit - 1);
 
     if (error) {
       return {
@@ -440,8 +519,8 @@ export async function getGroupMessages(
       };
     }
 
-    // Transform and reverse to get chronological order
-    const result = (messages || []).reverse().map((m) => ({
+    // Return in newest-first order (same as one-to-one messages)
+    const result = (messages || []).map((m) => ({
       id: m.id,
       group_id: m.group_id,
       sender_id: m.sender_id,
@@ -476,9 +555,13 @@ export async function getGroupMessages(
 export async function sendGroupMessage(
   supabase: SupabaseClient,
   groupId: string,
-  content: string,
+  content: string | null,
   type: 'text' | 'image' = 'text',
-  mediaUrl?: string
+  mediaUrl?: string,
+  tempId?: string,
+  senderProfile?: { full_name?: string | null; avatar_url?: string | null },
+  mediaWidth?: number | null,
+  mediaHeight?: number | null
 ): Promise<ServiceResult<{ id: string }>> {
   try {
     const user = await getCachedUser(supabase);
@@ -490,14 +573,17 @@ export async function sendGroupMessage(
       };
     }
 
+    // Insert to database FIRST - this is the source of truth
     const { data: message, error } = await supabase
       .from('group_messages')
       .insert({
         group_id: groupId,
         sender_id: user.id,
-        content: content.trim(),
+        content: content?.trim() || null,
         type,
         media_url: mediaUrl,
+        media_width: mediaWidth || null,
+        media_height: mediaHeight || null,
       })
       .select('id')
       .single();
@@ -508,6 +594,8 @@ export async function sendGroupMessage(
         error: { type: 'NETWORK_ERROR', message: error.message },
       };
     }
+
+    // NOTE: WebSocket broadcast removed - using only Postgres Realtime for message delivery
 
     return { success: true, data: { id: message.id } };
   } catch (error) {
@@ -612,6 +700,281 @@ export async function leaveGroup(
     }
 
     return { success: true, data: undefined };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        type: 'UNKNOWN_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+      },
+    };
+  }
+}
+
+/**
+ * Mark all messages in a group as read (reset unread count)
+ */
+export async function markGroupAsRead(
+  supabase: SupabaseClient,
+  groupId: string
+): Promise<ServiceResult<void>> {
+  try {
+    const user = await getCachedUser(supabase);
+    
+    if (!user) {
+      return {
+        success: false,
+        error: { type: 'AUTH_ERROR', message: 'User not authenticated' },
+      };
+    }
+
+    // Reset unread count to 0
+    const { error } = await supabase
+      .from('group_unread_counts')
+      .upsert({ 
+        user_id: user.id, 
+        group_id: groupId, 
+        count: 0 
+      }, { 
+        onConflict: 'user_id,group_id' 
+      });
+
+    if (error) {
+      return {
+        success: false,
+        error: { type: 'NETWORK_ERROR', message: error.message },
+      };
+    }
+
+    return { success: true, data: undefined };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        type: 'UNKNOWN_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+      },
+    };
+  }
+}
+
+
+/**
+ * Edit a group message
+ */
+export async function editGroupMessage(
+  supabase: SupabaseClient,
+  messageId: string,
+  newContent: string
+): Promise<ServiceResult<GroupMessage>> {
+  try {
+    const user = await getCachedUser(supabase);
+
+    if (!user) {
+      return {
+        success: false,
+        error: { type: 'AUTH_ERROR', message: 'User not authenticated' },
+      };
+    }
+
+    // Validate content
+    if (!newContent || !newContent.trim()) {
+      return {
+        success: false,
+        error: { type: 'VALIDATION_ERROR', message: 'Message content cannot be empty' },
+      };
+    }
+
+    // Update message
+    const { data: message, error: updateError } = await supabase
+      .from('group_messages')
+      .update({
+        content: newContent.trim(),
+        is_edited: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', messageId)
+      .eq('sender_id', user.id) // Ensure user owns the message
+      .select()
+      .single();
+
+    if (updateError || !message) {
+      return {
+        success: false,
+        error: {
+          type: updateError?.code === 'PGRST116' ? 'PERMISSION_DENIED' : 'NETWORK_ERROR',
+          message: updateError?.message || 'Failed to edit message',
+        },
+      };
+    }
+
+    return { success: true, data: message as GroupMessage };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        type: 'UNKNOWN_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+      },
+    };
+  }
+}
+
+/**
+ * Delete a group message (soft delete)
+ */
+export async function deleteGroupMessage(
+  supabase: SupabaseClient,
+  messageId: string
+): Promise<ServiceResult<GroupMessage>> {
+  try {
+    const user = await getCachedUser(supabase);
+
+    if (!user) {
+      return {
+        success: false,
+        error: { type: 'AUTH_ERROR', message: 'User not authenticated' },
+      };
+    }
+
+    // Soft delete message
+    const { data: message, error: updateError } = await supabase
+      .from('group_messages')
+      .update({
+        content: 'This message was deleted',
+        is_deleted: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', messageId)
+      .eq('sender_id', user.id) // Ensure user owns the message
+      .select()
+      .single();
+
+    if (updateError || !message) {
+      return {
+        success: false,
+        error: {
+          type: updateError?.code === 'PGRST116' ? 'PERMISSION_DENIED' : 'NETWORK_ERROR',
+          message: updateError?.message || 'Failed to delete message',
+        },
+      };
+    }
+
+    return { success: true, data: message as GroupMessage };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        type: 'UNKNOWN_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+      },
+    };
+  }
+}
+
+/**
+ * Update user's last read message in a group
+ */
+export async function updateGroupReadReceipt(
+  supabase: SupabaseClient,
+  groupId: string,
+  messageId: string
+): Promise<ServiceResult<void>> {
+  try {
+    const user = await getCachedUser(supabase);
+    
+    if (!user) {
+      return {
+        success: false,
+        error: { type: 'AUTH_ERROR', message: 'User not authenticated' },
+      };
+    }
+
+    const { error } = await supabase
+      .from('group_message_reads')
+      .upsert({ 
+        user_id: user.id, 
+        group_id: groupId, 
+        last_read_message_id: messageId,
+        last_read_at: new Date().toISOString(),
+      }, { 
+        onConflict: 'user_id,group_id' 
+      });
+
+    if (error) {
+      console.error('[GroupService] Error updating read receipt:', error);
+      return {
+        success: false,
+        error: { type: 'NETWORK_ERROR', message: error.message },
+      };
+    }
+
+    return { success: true, data: undefined };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        type: 'UNKNOWN_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+      },
+    };
+  }
+}
+
+/**
+ * Get read receipts for a group (who has read up to which message)
+ */
+export interface GroupReadReceipt {
+  user_id: string;
+  last_read_message_id: string | null;
+  last_read_at: string;
+  profile: {
+    id: string;
+    full_name: string | null;
+    avatar_url: string | null;
+    email: string | null;
+  };
+}
+
+export async function getGroupReadReceipts(
+  supabase: SupabaseClient,
+  groupId: string
+): Promise<ServiceResult<GroupReadReceipt[]>> {
+  try {
+    const user = await getCachedUser(supabase);
+    
+    if (!user) {
+      return {
+        success: false,
+        error: { type: 'AUTH_ERROR', message: 'User not authenticated' },
+      };
+    }
+
+    const { data, error } = await supabase
+      .from('group_message_reads')
+      .select(`
+        user_id,
+        last_read_message_id,
+        last_read_at,
+        profile:profiles!user_id (
+          id,
+          full_name,
+          avatar_url,
+          email
+        )
+      `)
+      .eq('group_id', groupId)
+      .neq('user_id', user.id); // Exclude current user
+
+    if (error) {
+      console.error('[GroupService] Error fetching read receipts:', error);
+      return {
+        success: false,
+        error: { type: 'NETWORK_ERROR', message: error.message },
+      };
+    }
+
+    return { success: true, data: data as GroupReadReceipt[] };
   } catch (error) {
     return {
       success: false,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import { sendMessage } from '@/services/message.service';
@@ -18,7 +18,8 @@ import { showInfoToast, showErrorToast } from '@/lib/toast.utils';
  */
 export function useOfflineQueue() {
   const queryClient = useQueryClient();
-  const supabase = createClient();
+  // Memoize Supabase client to prevent recreation on every render
+  const supabase = useMemo(() => createClient(), []);
 
   /**
    * Process all queued messages

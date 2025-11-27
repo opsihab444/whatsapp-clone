@@ -2,12 +2,12 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { Conversation } from '@/types';
+import { Conversation, GroupConversation } from '@/types';
 import { updateTabTitle } from '@/lib/utils';
 
 /**
  * Hook to manage unread count and tab title updates
- * Calculates total unread count from all conversations and updates browser tab title
+ * Calculates total unread count from all conversations and groups, updates browser tab title
  */
 export function useUnreadCount() {
   const queryClient = useQueryClient();
@@ -15,14 +15,22 @@ export function useUnreadCount() {
   const [conversations, setConversations] = useState<Conversation[] | undefined>(
     () => queryClient.getQueryData<Conversation[]>(['conversations'])
   );
+  const [groups, setGroups] = useState<GroupConversation[] | undefined>(
+    () => queryClient.getQueryData<GroupConversation[]>(['groups'])
+  );
 
   useEffect(() => {
     isMounted.current = true;
     
-    // Subscribe to cache changes for the conversations query
+    // Subscribe to cache changes for conversations and groups
     const unsubscribe = queryClient.getQueryCache().subscribe((event) => {
-      if (event.query.queryKey[0] === 'conversations' && isMounted.current) {
+      if (!isMounted.current) return;
+      
+      if (event.query.queryKey[0] === 'conversations') {
         setConversations(queryClient.getQueryData<Conversation[]>(['conversations']));
+      }
+      if (event.query.queryKey[0] === 'groups') {
+        setGroups(queryClient.getQueryData<GroupConversation[]>(['groups']));
       }
     });
 
@@ -33,11 +41,9 @@ export function useUnreadCount() {
   }, [queryClient]);
 
   useEffect(() => {
-    if (conversations) {
-      const totalUnread = conversations.reduce((sum, conv) => sum + conv.unread_count, 0);
-      updateTabTitle(totalUnread);
-    } else {
-      updateTabTitle(0);
-    }
-  }, [conversations]);
+    const convUnread = conversations?.reduce((sum, conv) => sum + conv.unread_count, 0) || 0;
+    const groupUnread = groups?.reduce((sum, g) => sum + (g.unread_count || 0), 0) || 0;
+    const totalUnread = convUnread + groupUnread;
+    updateTabTitle(totalUnread);
+  }, [conversations, groups]);
 }

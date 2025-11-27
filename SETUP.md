@@ -15,7 +15,7 @@ This document summarizes the initial project setup completed for the WhatsApp Cl
 - `@supabase/ssr` (v0.7.0) - Supabase client for SSR
 - `@tanstack/react-query` (v5.90.10) - Server state management
 - `zustand` (v5.0.8) - Client state management
-- `@tanstack/react-virtual` (v3.13.12) - List virtualization
+- `react-window` (v2.2.3) - List virtualization
 - `lucide-react` (v0.554.0) - Icon library
 - `zod` (v4.1.12) - Schema validation
 - `react-hook-form` (v7.66.1) - Form handling
