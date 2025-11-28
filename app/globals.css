@@ -211,10 +211,14 @@ input[type="search"]::-webkit-search-results-decoration {
 
 /* Typing indicator dot animation */
 @keyframes typingDot {
-  0%, 60%, 100% {
+
+  0%,
+  60%,
+  100% {
     transform: translateY(0);
     opacity: 0.4;
   }
+
   30% {
     transform: translateY(-4px);
     opacity: 1;
@@ -284,4 +288,3 @@ input[type="search"]::-webkit-search-results-decoration {
   background-repeat: repeat;
   background-size: 200px 200px;
 }
-

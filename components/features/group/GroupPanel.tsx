@@ -1,30 +1,28 @@
 'use client';
 
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
-import { useParams } from 'next/navigation';
-import { useUIStore } from '@/store/ui.store';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Users, Send, Smile, Plus, Mic, Image as ImageIcon, X, Loader2 } from 'lucide-react';
+import { Users, Send, Smile, Mic, Image as ImageIcon, X, Loader2 } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
-import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { createClient } from '@/lib/supabase/client';
-import { sendGroupMessage, getGroupMembers, editGroupMessage, deleteGroupMessage } from '@/services/group.service';
+import { sendGroupMessage, getGroupMembers } from '@/services/group.service';
 import { GroupInfoPanel } from '@/components/features/group/GroupInfoPanel';
 import { GroupMessageList } from '@/components/features/group/GroupMessageList';
 import { EditGroupMessageModal } from '@/components/features/group/EditGroupMessageModal';
 import { DeleteGroupMessageModal } from '@/components/features/group/DeleteGroupMessageModal';
-import { GroupConversation, GroupMessage } from '@/types';
 import { useMarkGroupAsRead } from '@/hooks/useMarkGroupAsRead';
+import { GroupConversation, GroupMessage } from '@/types';
 import { showErrorToast } from '@/lib/toast.utils';
 import Image from 'next/image';
 
-export default function GroupChatPage() {
-  const params = useParams();
-  const groupId = params.groupId as string;
-  const setActiveGroupId = useUIStore((state) => state.setActiveGroupId);
+interface GroupPanelProps {
+  groupId: string;
+}
+
+export function GroupPanel({ groupId }: GroupPanelProps) {
   const { data: currentUser } = useCurrentUser();
   const [message, setMessage] = useState('');
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -39,7 +37,7 @@ export default function GroupChatPage() {
   const isTypingRef = useRef(false);
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  // Subscribe to typing channel for this group
+  // Subscribe to typing channel
   useEffect(() => {
     const channel = supabase.channel(`group-typing:${groupId}`);
     channel.subscribe();
@@ -59,7 +57,7 @@ export default function GroupChatPage() {
     }
   }, [message]);
 
-  // Fetch group info from groups cache
+  // Fetch group info from cache
   const { data: groups } = useQuery<GroupConversation[]>({ queryKey: ['groups'] });
   const group = useMemo(() => {
     if (!groups) return null;
@@ -77,15 +75,10 @@ export default function GroupChatPage() {
     staleTime: 1000 * 60 * 10,
   });
 
-  useEffect(() => {
-    setActiveGroupId(groupId);
-    return () => setActiveGroupId(null);
-  }, [groupId, setActiveGroupId]);
-
-  // Mark group as read when opened
+  // Mark group as read
   useMarkGroupAsRead(groupId);
 
-  // Broadcast typing event for group (debounced)
+  // Broadcast typing
   const broadcastTyping = useCallback(() => {
     if (!currentUser || !typingChannelRef.current) return;
 
@@ -116,7 +109,6 @@ export default function GroupChatPage() {
     }, 1500);
   }, [currentUser]);
 
-  // Cleanup typing timeout on unmount
   useEffect(() => {
     return () => {
       if (typingTimeoutRef.current) {
@@ -141,15 +133,13 @@ export default function GroupChatPage() {
     }
 
     setSelectedImage(file);
-    const previewUrl = URL.createObjectURL(file);
-    setImagePreview(previewUrl);
+    setImagePreview(URL.createObjectURL(file));
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   }, []);
 
-  // Clear selected image
   const clearSelectedImage = useCallback(() => {
     if (imagePreview) {
       URL.revokeObjectURL(imagePreview);
@@ -158,7 +148,7 @@ export default function GroupChatPage() {
     setImagePreview(null);
   }, [imagePreview]);
 
-  // Upload image via API proxy (avoids CORS)
+  // Upload image
   const uploadImageToCDN = useCallback(async (file: File): Promise<string | null> => {
     try {
       const formData = new FormData();
@@ -169,9 +159,7 @@ export default function GroupChatPage() {
         body: formData,
       });
 
-      if (!response.ok) {
-        throw new Error('Upload failed');
-      }
+      if (!response.ok) throw new Error('Upload failed');
 
       const data = await response.json();
       return data.url || null;
@@ -181,12 +169,10 @@ export default function GroupChatPage() {
     }
   }, []);
 
-  // Get image dimensions from blob URL
   const getImageDimensions = useCallback((url: string): Promise<{ width: number; height: number }> => {
     return new Promise((resolve) => {
       const img = new window.Image();
       img.onload = () => {
-        // Calculate display dimensions (max 300px, maintain aspect ratio)
         const maxSize = 300;
         let width = img.naturalWidth;
         let height = img.naturalHeight;
@@ -202,7 +188,7 @@ export default function GroupChatPage() {
         }
         resolve({ width, height });
       };
-      img.onerror = () => resolve({ width: 200, height: 200 }); // fallback
+      img.onerror = () => resolve({ width: 200, height: 200 });
       img.src = url;
     });
   }, []);
@@ -213,13 +199,11 @@ export default function GroupChatPage() {
 
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const timestamp = new Date().toISOString();
-    const currentPreviewUrl = imagePreview; // Store for later cleanup
-    const currentFile = selectedImage; // Store file reference
+    const currentPreviewUrl = imagePreview;
+    const currentFile = selectedImage;
 
-    // Get image dimensions BEFORE showing (instant from blob)
     const dimensions = await getImageDimensions(currentPreviewUrl);
 
-    // Create optimistic message with local preview and dimensions
     const optimisticMessage: GroupMessage = {
       id: tempId,
       group_id: groupId,
@@ -243,7 +227,6 @@ export default function GroupChatPage() {
       },
     };
 
-    // Add to cache immediately
     queryClient.setQueryData(
       ['group-messages', groupId],
       (oldData: { pages: GroupMessage[][]; pageParams: number[] } | undefined) => {
@@ -256,12 +239,10 @@ export default function GroupChatPage() {
       }
     );
 
-    // Clear the input state (but DON'T revoke blob URL yet - message bubble needs it)
     setSelectedImage(null);
     setImagePreview(null);
     setIsUploadingImage(true);
 
-    // Upload to CDN
     const cdnUrl = await uploadImageToCDN(currentFile);
 
     if (!cdnUrl) {
@@ -269,12 +250,12 @@ export default function GroupChatPage() {
         ['group-messages', groupId],
         (oldData: { pages: GroupMessage[][]; pageParams: number[] } | undefined) => {
           if (!oldData?.pages) return oldData;
-          const newPages = oldData.pages.map((page) =>
-            page.map((msg) =>
-              msg.id === tempId ? { ...msg, status: 'failed' as const } : msg
-            )
-          );
-          return { ...oldData, pages: newPages };
+          return {
+            ...oldData,
+            pages: oldData.pages.map((page) =>
+              page.map((msg) => (msg.id === tempId ? { ...msg, status: 'failed' as const } : msg))
+            ),
+          };
         }
       );
       showErrorToast('Failed to upload image');
@@ -282,7 +263,6 @@ export default function GroupChatPage() {
       return;
     }
 
-    // Send to database with dimensions
     const result = await sendGroupMessage(
       supabase,
       groupId,
@@ -296,38 +276,23 @@ export default function GroupChatPage() {
     );
 
     if (result.success) {
-      // Preload CDN image before switching URL (prevents flash)
-      const preloadImage = () => {
-        return new Promise<void>((resolve) => {
-          const img = new window.Image();
-          img.onload = () => resolve();
-          img.onerror = () => resolve();
-          img.src = cdnUrl;
-          setTimeout(resolve, 5000);
-        });
-      };
-
-      await preloadImage();
-
       queryClient.setQueryData(
         ['group-messages', groupId],
         (oldData: { pages: GroupMessage[][]; pageParams: number[] } | undefined) => {
           if (!oldData?.pages) return oldData;
-          const newPages = oldData.pages.map((page) =>
-            page.map((msg) =>
-              msg.id === tempId
-                ? { ...msg, id: result.data.id, media_url: cdnUrl, status: 'sent' as const }
-                : msg
-            )
-          );
-          return { ...oldData, pages: newPages };
+          return {
+            ...oldData,
+            pages: oldData.pages.map((page) =>
+              page.map((msg) =>
+                msg.id === tempId ? { ...msg, id: result.data.id, media_url: cdnUrl, status: 'sent' as const, _blobUrl: currentPreviewUrl } : msg
+              )
+            ),
+          };
         }
       );
 
-      // Now safe to revoke blob URL since CDN image is loaded
-      URL.revokeObjectURL(currentPreviewUrl);
+      // Don't revoke blob URL here - GroupImageMessageContent will handle it after CDN image loads
 
-      // Update groups sidebar
       queryClient.setQueryData(['groups'], (old: any) => {
         if (!old) return old;
         const updated = old.map((g: any) =>
@@ -352,26 +317,21 @@ export default function GroupChatPage() {
         ['group-messages', groupId],
         (oldData: { pages: GroupMessage[][]; pageParams: number[] } | undefined) => {
           if (!oldData?.pages) return oldData;
-          const newPages = oldData.pages.map((page) =>
-            page.filter((msg) => msg.id !== tempId)
-          );
-          return { ...oldData, pages: newPages };
+          return { ...oldData, pages: oldData.pages.map((page) => page.filter((msg) => msg.id !== tempId)) };
         }
       );
     }
 
     setIsUploadingImage(false);
-  }, [currentUser, selectedImage, imagePreview, groupId, queryClient, supabase, uploadImageToCDN]);
+  }, [currentUser, selectedImage, imagePreview, groupId, queryClient, supabase, uploadImageToCDN, getImageDimensions]);
 
   const handleSend = () => {
-    // If image is selected, send image
     if (selectedImage && !isUploadingImage) {
       sendImageMessage();
       return;
     }
     if (!message.trim() || !currentUser) return;
 
-    // Stop typing broadcast immediately
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
@@ -387,7 +347,6 @@ export default function GroupChatPage() {
     const messageContent = message.trim();
     setMessage('');
 
-    // Optimistic update - add message to cache IMMEDIATELY
     const tempId = `temp-${Date.now()}`;
     const optimisticMessage: GroupMessage = {
       id: tempId,
@@ -412,7 +371,6 @@ export default function GroupChatPage() {
       },
     };
 
-    // Add to infinite query cache IMMEDIATELY
     queryClient.setQueryData(
       ['group-messages', groupId],
       (oldData: { pages: GroupMessage[][]; pageParams: number[] } | undefined) => {
@@ -425,18 +383,17 @@ export default function GroupChatPage() {
       }
     );
 
-    // Update groups sidebar immediately - last_message fields are at TOP level
     queryClient.setQueryData(['groups'], (old: any) => {
       if (!old) return old;
       const updated = old.map((g: any) =>
         g.id === groupId || g.group?.id === groupId
           ? {
-            ...g,
-            last_message_content: messageContent,
-            last_message_time: optimisticMessage.created_at,
-            last_message_sender_id: currentUser.id,
-            last_message_sender_name: currentUser.name,
-          }
+              ...g,
+              last_message_content: messageContent,
+              last_message_time: optimisticMessage.created_at,
+              last_message_sender_id: currentUser.id,
+              last_message_sender_name: currentUser.name,
+            }
           : g
       );
       return updated.sort((a: any, b: any) => {
@@ -446,40 +403,29 @@ export default function GroupChatPage() {
       });
     });
 
-    // Send message in background - don't block UI
-    sendGroupMessage(
-      supabase,
-      groupId,
-      messageContent,
-      'text',
-      undefined,
-      tempId,
-      { full_name: currentUser.name, avatar_url: currentUser.avatar }
-    ).then((result) => {
+    sendGroupMessage(supabase, groupId, messageContent, 'text', undefined, tempId, {
+      full_name: currentUser.name,
+      avatar_url: currentUser.avatar,
+    }).then((result) => {
       if (result.success) {
-        // Update temp message with real ID
         queryClient.setQueryData(
           ['group-messages', groupId],
           (oldData: { pages: GroupMessage[][]; pageParams: number[] } | undefined) => {
             if (!oldData?.pages) return oldData;
-            const newPages = oldData.pages.map((page) =>
-              page.map((msg) =>
-                msg.id === tempId ? { ...msg, id: result.data.id, status: 'sent' as const } : msg
-              )
-            );
-            return { ...oldData, pages: newPages };
+            return {
+              ...oldData,
+              pages: oldData.pages.map((page) =>
+                page.map((msg) => (msg.id === tempId ? { ...msg, id: result.data.id, status: 'sent' as const } : msg))
+              ),
+            };
           }
         );
       } else {
-        // Remove optimistic message on failure
         queryClient.setQueryData(
           ['group-messages', groupId],
           (oldData: { pages: GroupMessage[][]; pageParams: number[] } | undefined) => {
             if (!oldData?.pages) return oldData;
-            const newPages = oldData.pages.map((page) =>
-              page.filter((msg) => msg.id !== tempId)
-            );
-            return { ...oldData, pages: newPages };
+            return { ...oldData, pages: oldData.pages.map((page) => page.filter((msg) => msg.id !== tempId)) };
           }
         );
       }
@@ -524,11 +470,10 @@ export default function GroupChatPage() {
                 </AvatarFallback>
               </Avatar>
               <div className="flex flex-col justify-center overflow-hidden text-left">
-                <h1 className="font-medium text-[15px] text-foreground truncate leading-tight">
-                  {group.group.name}
-                </h1>
+                <h1 className="font-medium text-[15px] text-foreground truncate leading-tight">{group.group.name}</h1>
                 <p className="text-[12px] text-muted-foreground truncate">
-                  {memberNames}{memberCount > 3 ? ` and ${memberCount - 3} more` : ''}
+                  {memberNames}
+                  {memberCount > 3 ? ` and ${memberCount - 3} more` : ''}
                 </p>
               </div>
             </>
@@ -536,19 +481,13 @@ export default function GroupChatPage() {
         </button>
       </header>
 
-      {/* Messages - Using virtualized GroupMessageList */}
+      {/* Messages */}
       <main className="flex-1 overflow-hidden">
-        <GroupMessageList
-          key={groupId}
-          groupId={groupId}
-          currentUserId={currentUser?.id}
-          members={members}
-        />
+        <GroupMessageList key={groupId} groupId={groupId} currentUserId={currentUser?.id} members={members} />
       </main>
 
       {/* Input Area */}
       <div className="bg-[#0b1014] px-4 py-2 z-20 min-h-[62px] flex flex-col border-t border-border/10">
-        {/* Image Preview */}
         {imagePreview && (
           <div className="flex items-center gap-2 mb-2 px-2 max-w-4xl mx-auto w-full">
             <div className="relative inline-block">
@@ -563,7 +502,6 @@ export default function GroupChatPage() {
               <button
                 onClick={clearSelectedImage}
                 className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full p-1 transition-colors"
-                aria-label="Remove image"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -573,72 +511,54 @@ export default function GroupChatPage() {
                 </div>
               )}
             </div>
-            <span className="text-sm text-[#8696a0]">
-              {isUploadingImage ? 'Uploading...' : 'Ready to send'}
-            </span>
+            <span className="text-sm text-[#8696a0]">{isUploadingImage ? 'Uploading...' : 'Ready to send'}</span>
           </div>
         )}
 
         <div className="flex items-end gap-3 w-full max-w-4xl mx-auto">
-          {/* Hidden file input */}
           <input
             ref={fileInputRef}
             type="file"
             accept="image/*"
             onChange={handleImageSelect}
             className="hidden"
-            aria-label="Select image"
           />
 
-          {/* Image Button - Outside input */}
-          <button 
+          <button
             onClick={() => fileInputRef.current?.click()}
-            className="mb-2 p-2 text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none rounded-full hover:bg-[#202c33]/50"
-            aria-label="Attach image"
+            className="mb-2 p-2 text-[#8696a0] hover:text-[#aebac1] transition-colors rounded-full hover:bg-[#202c33]/50"
           >
             <ImageIcon className="h-6 w-6" />
           </button>
 
-          {/* Input Field Container */}
-          <div className="flex-1 flex items-end bg-[#202c33] rounded-[24px] px-2 py-1.5 outline-none min-h-[42px]">
-            {/* Emoji Button - Inside input */}
-            <button className="mb-1 p-2 text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none">
+          <div className="flex-1 flex items-end bg-[#202c33] rounded-[24px] px-2 py-1.5 min-h-[42px]">
+            <button className="mb-1 p-2 text-[#8696a0] hover:text-[#aebac1] transition-colors">
               <Smile className="h-6 w-6" />
             </button>
 
-            {/* Text Input */}
             <Textarea
               ref={textareaRef}
               value={message}
               onChange={(e) => {
                 setMessage(e.target.value);
-                if (e.target.value.trim()) {
-                  broadcastTyping();
-                }
+                if (e.target.value.trim()) broadcastTyping();
               }}
               onKeyDown={handleKeyDown}
               placeholder="Type a message"
-              className="flex-1 min-h-[24px] max-h-[120px] resize-none border-0 bg-transparent px-3 py-2 focus:ring-0 focus:border-0 focus-visible:ring-0 placeholder:text-[#8696a0] leading-5 text-[15px] text-[#e9edef] outline-none scrollbar-hide"
+              className="flex-1 min-h-[24px] max-h-[120px] resize-none border-0 bg-transparent px-3 py-2 focus:ring-0 focus-visible:ring-0 placeholder:text-[#8696a0] text-[15px] text-[#e9edef] outline-none scrollbar-hide"
               rows={1}
-              aria-label="Message input"
             />
 
-            {/* Mic/Send Button - Inside input */}
             {message.trim() || selectedImage ? (
               <button
                 onClick={handleSend}
                 disabled={isUploadingImage}
-                className="mb-1 p-2 text-[#00a884] hover:text-[#06cf9c] transition-colors outline-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-                aria-label="Send message"
+                className="mb-1 p-2 text-[#00a884] hover:text-[#06cf9c] transition-colors disabled:opacity-50"
               >
-                {isUploadingImage ? (
-                  <Loader2 className="h-6 w-6 animate-spin" />
-                ) : (
-                  <Send className="h-6 w-6" />
-                )}
+                {isUploadingImage ? <Loader2 className="h-6 w-6 animate-spin" /> : <Send className="h-6 w-6" />}
               </button>
             ) : (
-              <button className="mb-1 p-2 text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none">
+              <button className="mb-1 p-2 text-[#8696a0] hover:text-[#aebac1] transition-colors">
                 <Mic className="h-6 w-6" />
               </button>
             )}
@@ -659,7 +579,7 @@ export default function GroupChatPage() {
         createdBy={group?.group.created_by || ''}
       />
 
-      {/* Edit/Delete Modals */}
+      {/* Modals */}
       <EditGroupMessageModal />
       <DeleteGroupMessageModal />
     </div>

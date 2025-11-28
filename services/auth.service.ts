@@ -7,12 +7,12 @@ type SupabaseClientType = SupabaseClient<Database>;
 /**
  * Sign up with email and password
  * @param supabase - Supabase client instance
- * @param credentials - Email and password credentials
+ * @param credentials - Email, password, name, and optional avatar
  * @returns ServiceResult with user and session or error
  */
 export async function signUpWithEmail(
   supabase: SupabaseClientType,
-  credentials: { email: string; password: string }
+  credentials: { email: string; password: string; name: string; avatarUrl?: string }
 ): Promise<ServiceResult<{ user: any; session: any }>> {
   try {
     // Validate password strength
@@ -29,6 +29,12 @@ export async function signUpWithEmail(
     const { data, error } = await supabase.auth.signUp({
       email: credentials.email,
       password: credentials.password,
+      options: {
+        data: {
+          full_name: credentials.name,
+          avatar_url: credentials.avatarUrl || null,
+        },
+      },
     });
 
     if (error) {

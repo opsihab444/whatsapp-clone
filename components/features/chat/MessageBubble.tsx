@@ -176,12 +176,31 @@ function ImageMessageContent({
         </>
       )}
 
-      {/* Sending overlay */}
+      {/* Sending overlay with large spinner */}
       {status === 'sending' && (
-        <div className="absolute inset-0 bg-black/40 rounded-lg flex items-center justify-center">
-          <div className="flex flex-col items-center gap-1">
-            <Loader2 className="h-6 w-6 text-white animate-spin" />
-            <span className="text-xs text-white">Sending...</span>
+        <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+          <div className="relative">
+            <svg className="w-16 h-16 animate-spin" viewBox="0 0 50 50">
+              <circle
+                cx="25"
+                cy="25"
+                r="20"
+                fill="none"
+                stroke="rgba(255,255,255,0.2)"
+                strokeWidth="4"
+              />
+              <circle
+                cx="25"
+                cy="25"
+                r="20"
+                fill="none"
+                stroke="white"
+                strokeWidth="4"
+                strokeLinecap="round"
+                strokeDasharray="80"
+                strokeDashoffset="60"
+              />
+            </svg>
           </div>
         </div>
       )}

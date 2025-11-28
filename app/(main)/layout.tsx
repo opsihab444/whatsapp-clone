@@ -7,7 +7,6 @@ import { ChatList } from '@/components/features/sidebar/ChatList';
 import { NetworkStatus } from '@/components/NetworkStatus';
 import { UserSearchResult } from '@/components/features/sidebar/UserSearchResult';
 import { useState, useEffect, useMemo } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
 import { useUIStore } from '@/store/ui.store';
 import { createClient } from '@/lib/supabase/client';
 import { Menu, ArrowLeft, Loader2 } from 'lucide-react';
@@ -29,13 +28,11 @@ export default function MainLayout({
   const [searchQuery, setSearchQuery] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeFilter, setActiveFilter] = useState<'all' | 'groups'>('all');
-  const router = useRouter();
-  const pathname = usePathname();
-  const { setActiveChatId, setActiveGroupId } = useUIStore();
+  const { activeChatId, activeGroupId, setActiveChatId, setActiveGroupId } = useUIStore();
   const supabase = useMemo(() => createClient(), []);
   const queryClient = useQueryClient();
 
-  // Use cached current user hook instead of manual fetch
+  // Use cached current user hook
   const { data: currentUser } = useCurrentUser();
 
   // Fetch groups
@@ -59,7 +56,6 @@ export default function MainLayout({
     const allItems: (Conversation | GroupConversation)[] = [...(groups || []), ...(conversations || [])];
     
     return allItems.sort((a, b) => {
-      // Get time for item A
       let timeA = 0;
       if (a.last_message_time) {
         timeA = new Date(a.last_message_time).getTime();
@@ -69,7 +65,6 @@ export default function MainLayout({
         timeA = new Date(a.created_at).getTime();
       }
 
-      // Get time for item B
       let timeB = 0;
       if (b.last_message_time) {
         timeB = new Date(b.last_message_time).getTime();
@@ -83,7 +78,7 @@ export default function MainLayout({
     });
   }, [groups, conversations]);
 
-  // Memoize user info to prevent unnecessary re-renders
+  // Memoize user info
   const userInfo = useMemo(() => {
     if (!currentUser) return null;
     return {
@@ -101,11 +96,7 @@ export default function MainLayout({
     }
   };
 
-  // Extract active chat/group ID from pathname
-  const activeChatId = pathname.match(/\/c\/([^/]+)/)?.[1] || null;
-  const activeGroupId = pathname.match(/\/g\/([^/]+)/)?.[1] || null;
-
-  // Close sidebar when navigating to a chat on mobile
+  // Close sidebar when selecting chat/group on mobile
   useEffect(() => {
     if (activeChatId || activeGroupId) {
       setIsSidebarOpen(false);
@@ -114,12 +105,10 @@ export default function MainLayout({
 
   const handleChatSelect = (chatId: string) => {
     setActiveChatId(chatId);
-    router.push(`/c/${chatId}`);
   };
 
   const handleGroupSelect = (groupId: string) => {
     setActiveGroupId(groupId);
-    router.push(`/g/${groupId}`);
   };
 
   const [searchResult, setSearchResult] = useState<{
@@ -131,7 +120,6 @@ export default function MainLayout({
   const [isSearching, setIsSearching] = useState(false);
 
   const handleSearchSubmit = async (query: string) => {
-    // Check if query looks like an email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(query)) {
       toast({
@@ -144,7 +132,6 @@ export default function MainLayout({
 
     setIsSearching(true);
 
-    // Search for user
     const result = await searchUserByEmail(supabase, query);
     setIsSearching(false);
 
@@ -166,12 +153,10 @@ export default function MainLayout({
       return;
     }
 
-    // Show search result
     setSearchResult(result.data);
   };
 
   const handleStartChat = async (userId: string) => {
-    // Create or get conversation
     const convResult = await getOrCreateConversation(supabase, userId);
 
     if (!convResult.success) {
@@ -183,17 +168,20 @@ export default function MainLayout({
       return;
     }
 
-    // Clear search
     setSearchQuery('');
     setSearchResult(null);
 
-    // Invalidate conversations cache to refetch
     queryClient.invalidateQueries({ queryKey: ['conversations'] });
 
-    // Small delay to let cache update
     setTimeout(() => {
       handleChatSelect(convResult.data);
     }, 100);
+  };
+
+  // Handle back button on mobile
+  const handleBack = () => {
+    setActiveChatId(null);
+    setActiveGroupId(null);
   };
 
   return (
@@ -208,16 +196,16 @@ export default function MainLayout({
         <NetworkStatus />
         <CreateGroupModal />
         <div className="flex h-screen overflow-hidden bg-background">
-          {/* Mobile menu button - only visible on mobile when chat/group is open */}
+          {/* Mobile back button - only visible on mobile when chat/group is open */}
           {(activeChatId || activeGroupId) && (
             <Button
               variant="ghost"
               size="icon"
               className="fixed top-4 left-4 z-50 md:hidden text-foreground bg-background/50 backdrop-blur-sm"
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              aria-label="Toggle sidebar"
+              onClick={handleBack}
+              aria-label="Back to chat list"
             >
-              {isSidebarOpen ? <ArrowLeft className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              <ArrowLeft className="h-5 w-5" />
             </Button>
           )}
 

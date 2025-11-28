@@ -1,6 +1,6 @@
 'use client';
 
-import { Search, MessageSquarePlus, MoreVertical, CircleDashed, Users, LogOut } from 'lucide-react';
+import { Search, MessageSquarePlus, MoreVertical, CircleDashed, Users, LogOut, Settings } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -40,7 +40,7 @@ export function SidebarHeader({
   onFilterChange,
 }: SidebarHeaderProps) {
   const router = useRouter();
-  const { openCreateGroupModal } = useUIStore();
+  const { openCreateGroupModal, openSettings } = useUIStore();
 
   const initials = userName
     ? userName
@@ -114,7 +114,8 @@ export function SidebarHeader({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openSettings()} className="cursor-pointer">
+                <Settings className="mr-2 h-4 w-4" />
                 Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />

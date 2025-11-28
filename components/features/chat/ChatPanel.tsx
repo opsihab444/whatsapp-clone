@@ -1,53 +1,29 @@
 'use client';
 
-import { useEffect } from 'react';
-import { useParams } from 'next/navigation';
-import { MessageList } from '@/components/features/chat/MessageList';
-import { InputArea } from '@/components/features/chat/InputArea';
-import { useUIStore } from '@/store/ui.store';
-import { useConversation } from '@/hooks/useConversation';
-import { useMarkAsRead } from '@/hooks/useMarkAsRead';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
-import { useAppReady } from '@/hooks/useAppReady';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Search, MoreVertical } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MessageList } from '@/components/features/chat/MessageList';
+import { InputArea } from '@/components/features/chat/InputArea';
+import { useConversation } from '@/hooks/useConversation';
+import { useMarkAsRead } from '@/hooks/useMarkAsRead';
+import { useAppReady } from '@/hooks/useAppReady';
 
-/**
- * Chat conversation page
- * Displays messages for a specific conversation and input area
- * Handles marking messages as read when conversation is opened
- * 
- * Loading Strategy: ALL data must be ready before showing real content
- * - Shows skeleton until conversations, currentUser, AND messages are all loaded
- * - This ensures everything appears together, not sequentially
- */
-export default function ChatPage() {
-  const params = useParams();
-  const chatId = params.chatId as string;
-  const setActiveChatId = useUIStore((state) => state.setActiveChatId);
+interface ChatPanelProps {
+  chatId: string;
+}
 
-  // Read conversation from cache only (no API request)
+export function ChatPanel({ chatId }: ChatPanelProps) {
   const { conversation, isLoading: isLoadingConversations } = useConversation(chatId);
   const { data: currentUser } = useCurrentUser();
-  
-  // Check if app data is ready (conversations + currentUser)
   const isAppReady = useAppReady();
 
-  // Mark messages as read when conversation is opened
+  // Mark messages as read
   useMarkAsRead(chatId);
 
-  // Set active chat ID in store
-  useEffect(() => {
-    setActiveChatId(chatId);
-
-    return () => {
-      setActiveChatId(null);
-    };
-  }, [chatId, setActiveChatId]);
-
-  // Conversation not found (only after loading is done AND we have no conversation)
+  // Conversation not found
   if (isAppReady && !conversation) {
     return (
       <div className="flex h-full items-center justify-center bg-[#0b141a]" role="alert">
@@ -61,17 +37,14 @@ export default function ChatPage() {
     );
   }
 
-  // Show header skeleton only during initial app load (page reload)
-  // On conversation switch, header shows instantly (data already in cache)
   const showHeaderSkeleton = !isAppReady || (isLoadingConversations && !conversation);
 
   return (
     <div className="flex flex-col h-full">
-      {/* Chat header - shows skeleton or real content */}
+      {/* Chat header */}
       <header className="flex items-center justify-between bg-background px-4 py-3 border-b border-border z-10 shadow-sm min-h-[64px]" role="banner">
         <div className="flex items-center gap-4 overflow-hidden">
           {showHeaderSkeleton ? (
-            // Header Skeleton - shown while conversation loads
             <>
               <Skeleton className="h-11 w-11 rounded-full" />
               <div className="flex flex-col gap-1.5">
@@ -80,7 +53,6 @@ export default function ChatPage() {
               </div>
             </>
           ) : conversation ? (
-            // Real header content
             <>
               <Avatar className="h-11 w-11 cursor-pointer hover:opacity-90 transition-opacity">
                 <AvatarImage src={conversation.other_user.avatar_url || undefined} className="object-cover" />
@@ -113,7 +85,7 @@ export default function ChatPage() {
         </div>
       </header>
 
-      {/* Message list - ALWAYS renders to start fetching messages in parallel with conversation */}
+      {/* Message list */}
       <main className="flex-1 overflow-hidden" role="main" aria-label="Messages">
         <MessageList
           key={chatId}
@@ -124,7 +96,7 @@ export default function ChatPage() {
         />
       </main>
 
-      {/* Input area - always instant */}
+      {/* Input area */}
       <InputArea
         key={chatId}
         conversationId={chatId}

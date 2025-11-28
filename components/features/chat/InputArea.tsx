@@ -116,7 +116,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
   const uploadImageToCDN = useCallback(async (file: File): Promise<string | null> => {
     const cloudName = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
     const uploadPreset = process.env.NEXT_PUBLIC_CLOUDINARY_UPLOAD_PRESET;
-    
+
     if (!cloudName || !uploadPreset) {
       console.error('Cloudinary config missing');
       return null;
@@ -125,13 +125,13 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
     return new Promise((resolve) => {
       const xhr = new XMLHttpRequest();
       const formData = new FormData();
-      
+
       formData.append('file', file);
       formData.append('upload_preset', uploadPreset);
       formData.append('folder', 'chat-images');
 
       xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, true);
-      
+
       xhr.onload = () => {
         if (xhr.status === 200) {
           const data = JSON.parse(xhr.responseText);
@@ -162,7 +162,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
         const maxSize = 300;
         let width = img.naturalWidth;
         let height = img.naturalHeight;
-        
+
         if (width > maxSize || height > maxSize) {
           if (width > height) {
             height = Math.round((height / width) * maxSize);
@@ -226,8 +226,8 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
           ? { ...conv, last_message_content: '📷 Photo', last_message_time: timestamp, last_message_sender_id: currentUserId }
           : conv
       );
-      return updated.sort((a: any, b: any) => 
-        (b.last_message_time ? new Date(b.last_message_time).getTime() : 0) - 
+      return updated.sort((a: any, b: any) =>
+        (b.last_message_time ? new Date(b.last_message_time).getTime() : 0) -
         (a.last_message_time ? new Date(a.last_message_time).getTime() : 0)
       );
     });
@@ -257,7 +257,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
 
     // 4. FIRE-AND-FORGET database save - don't await, update UI immediately
     setIsUploadingImage(false);
-    
+
     // Update UI to show sent (before DB confirms)
     queryClient.setQueryData(['messages', conversationId], (old: any) => {
       if (!old) return old;
@@ -577,7 +577,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
         />
 
         {/* Image Button - Outside input */}
-        <button 
+        <button
           onClick={() => fileInputRef.current?.click()}
           className="p-2 mb-1 text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none"
           aria-label="Attach image"

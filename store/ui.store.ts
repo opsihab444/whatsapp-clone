@@ -17,6 +17,7 @@ interface TypingUserInfo {
 interface UIState {
   activeChatId: string | null;
   activeGroupId: string | null;
+  activeView: 'chat' | 'settings' | null;
   replyTo: ReplyToMessage | null;
   modals: {
     editMessage: { isOpen: boolean; messageId: string | null };
@@ -31,6 +32,9 @@ interface UIState {
   typingUsersMultiple: Map<string, Map<string, TypingUserInfo>>;
   setActiveChatId: (chatId: string | null) => void;
   setActiveGroupId: (groupId: string | null) => void;
+  setActiveView: (view: 'chat' | 'settings' | null) => void;
+  openSettings: () => void;
+  closeSettings: () => void;
   setReplyTo: (message: ReplyToMessage | null) => void;
   openEditModal: (messageId: string) => void;
   closeEditModal: () => void;
@@ -53,6 +57,7 @@ interface UIState {
 export const useUIStore = create<UIState>((set, get) => ({
   activeChatId: null,
   activeGroupId: null,
+  activeView: null,
   replyTo: null,
   modals: {
     editMessage: { isOpen: false, messageId: null },
@@ -63,8 +68,11 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
   typingUsers: new Map(),
   typingUsersMultiple: new Map(),
-  setActiveChatId: (chatId) => set({ activeChatId: chatId, activeGroupId: null }),
-  setActiveGroupId: (groupId) => set({ activeGroupId: groupId, activeChatId: null }),
+  setActiveChatId: (chatId) => set({ activeChatId: chatId, activeGroupId: null, activeView: 'chat' }),
+  setActiveGroupId: (groupId) => set({ activeGroupId: groupId, activeChatId: null, activeView: 'chat' }),
+  setActiveView: (view) => set({ activeView: view }),
+  openSettings: () => set({ activeView: 'settings', activeChatId: null, activeGroupId: null }),
+  closeSettings: () => set({ activeView: null }),
   setReplyTo: (message) => set({ replyTo: message }),
   openEditModal: (messageId) =>
     set((state) => ({
