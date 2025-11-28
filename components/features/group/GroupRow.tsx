@@ -137,13 +137,13 @@ function GroupRowComponent({
       aria-label={`Group chat ${displayName}${unread_count > 0 ? `, ${unread_count} unread messages` : ''}`}
       aria-current={isActive ? 'true' : 'false'}
       className={cn(
-        'group flex items-center gap-4 px-4 py-0 h-[80px] cursor-pointer transition-colors duration-200 hover:bg-accent focus:outline-none focus:bg-accent mx-2 rounded-xl',
-        isActive && 'bg-accent hover:bg-accent'
+        'group flex items-center gap-4 px-4 py-3 cursor-pointer transition-all duration-300 hover:bg-accent/50 focus:outline-none focus:bg-accent/50 mx-2 rounded-xl border border-transparent hover:border-border/50',
+        isActive && 'bg-accent shadow-sm border-border/50'
       )}
     >
       {/* Avatar */}
-      <div className="relative shrink-0">
-        <Avatar className="h-[54px] w-[54px]">
+      <div className="relative shrink-0 transition-transform duration-300 group-hover:scale-105">
+        <Avatar className="h-[50px] w-[50px] ring-2 ring-transparent group-hover:ring-primary/20 transition-all">
           {group.group.avatar_url && (
             <AvatarImage src={group.group.avatar_url} alt={displayName} className="object-cover" />
           )}
@@ -154,7 +154,7 @@ function GroupRowComponent({
       </div>
 
       {/* Content */}
-      <div className="flex-1 min-w-0 flex flex-col justify-center h-full border-b border-border/50 pr-2 group-last:border-none">
+      <div className="flex-1 min-w-0 flex flex-col justify-center h-full pr-2">
         <div className="flex items-center justify-between mb-1">
           <p className="text-[18px] text-foreground truncate leading-6 font-medium">
             {highlightText(displayName)}

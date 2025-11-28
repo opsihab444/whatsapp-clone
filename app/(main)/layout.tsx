@@ -36,25 +36,25 @@ export default function MainLayout({
   const { data: currentUser } = useCurrentUser();
 
   // Fetch groups
-  const { 
-    groups, 
-    isLoading: isGroupsLoading, 
-    isError: isGroupsError, 
-    refetch: refetchGroups 
+  const {
+    groups,
+    isLoading: isGroupsLoading,
+    isError: isGroupsError,
+    refetch: refetchGroups
   } = useGroups(searchQuery);
 
   // Fetch chats
-  const { 
-    conversations, 
-    isLoading: isChatsLoading, 
-    isError: isChatsError, 
-    refetch: refetchChats 
+  const {
+    conversations,
+    isLoading: isChatsLoading,
+    isError: isChatsError,
+    refetch: refetchChats
   } = useChatList(searchQuery);
 
   // Merge and sort items
   const mergedItems = useMemo(() => {
     const allItems: (Conversation | GroupConversation)[] = [...(groups || []), ...(conversations || [])];
-    
+
     return allItems.sort((a, b) => {
       let timeA = 0;
       if (a.last_message_time) {
@@ -302,7 +302,7 @@ export default function MainLayout({
           <div
             id="main-content"
             className={`
-              flex-1 flex flex-col overflow-hidden relative whatsapp-chat-bg
+              flex-1 flex flex-col overflow-hidden relative chat-background
               ${!(activeChatId || activeGroupId) ? 'hidden md:flex' : 'flex'}
             `}
           >

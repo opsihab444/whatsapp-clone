@@ -26,7 +26,7 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
   // Conversation not found
   if (isAppReady && !conversation) {
     return (
-      <div className="flex h-full items-center justify-center bg-[#0b141a]" role="alert">
+      <div className="flex h-full items-center justify-center bg-background" role="alert">
         <div className="text-center space-y-2">
           <p className="text-lg font-medium text-zinc-200">Conversation not found</p>
           <p className="text-sm text-zinc-500">
@@ -42,7 +42,7 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Chat header */}
-      <header className="flex items-center justify-between bg-background px-4 py-3 border-b border-border z-10 shadow-sm min-h-[64px]" role="banner">
+      <header className="flex items-center justify-between bg-background/80 backdrop-blur-xl px-6 py-3 border-b border-border/50 z-10 shadow-sm min-h-[70px] sticky top-0" role="banner">
         <div className="flex items-center gap-4 overflow-hidden">
           {showHeaderSkeleton ? (
             <>
@@ -62,7 +62,7 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
                 </AvatarFallback>
               </Avatar>
               <div className="flex flex-col justify-center overflow-hidden cursor-pointer">
-                <h1 className="font-medium text-[17px] text-foreground truncate leading-tight">
+                <h1 className="font-semibold text-[16px] text-foreground truncate leading-tight tracking-tight">
                   {conversation.other_user.full_name || conversation.other_user.email}
                 </h1>
                 <p className="text-[13px] text-muted-foreground truncate mt-0.5">
@@ -74,11 +74,11 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
         </div>
 
         <div className="flex items-center gap-1 text-muted-foreground">
-          <Button variant="ghost" size="icon" className="h-11 w-11 rounded-full hover:bg-muted/50">
+          <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full hover:bg-secondary hover:text-foreground transition-all duration-300">
             <Search className="h-5 w-5" />
             <span className="sr-only">Search</span>
           </Button>
-          <Button variant="ghost" size="icon" className="h-11 w-11 rounded-full hover:bg-muted/50">
+          <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full hover:bg-secondary hover:text-foreground transition-all duration-300">
             <MoreVertical className="h-5 w-5" />
             <span className="sr-only">Menu</span>
           </Button>

@@ -43,49 +43,51 @@ export function DeleteMessageModal() {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
         onClick={closeDeleteModal}
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-sm mx-4 bg-[#233138] rounded-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-sm bg-popover/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Content */}
         <div className="p-6 text-center">
           {/* Warning Icon */}
-          <div className="flex justify-center mb-4">
-            <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center">
-              <AlertTriangle className="w-6 h-6 text-red-500" />
+          <div className="flex justify-center mb-6">
+            <div className="w-16 h-16 rounded-full bg-destructive/10 flex items-center justify-center ring-1 ring-destructive/20">
+              <AlertTriangle className="w-8 h-8 text-destructive" />
             </div>
           </div>
 
           {/* Title */}
-          <h2 className="text-lg font-medium text-[#e9edef] mb-2">
+          <h2 className="text-xl font-semibold text-foreground mb-3">
             Delete message?
           </h2>
 
           {/* Description */}
-          <p className="text-sm text-[#8696a0] mb-4">
+          <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
             This message will be deleted for everyone in this chat. This action cannot be undone.
           </p>
 
           {/* Error message */}
           {error && (
-            <p className="mb-4 text-sm text-red-400">{error}</p>
+            <p className="mb-4 text-sm text-destructive font-medium bg-destructive/10 py-2 px-3 rounded-lg">
+              {error}
+            </p>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex border-t border-[#3b4a54]">
+        <div className="flex border-t border-border/50 bg-muted/30">
           <button
             onClick={closeDeleteModal}
             disabled={isLoading}
             className={cn(
-              'flex-1 px-4 py-3 text-sm font-medium text-[#00a884]',
-              'hover:bg-[#00a884]/10 transition-colors',
-              'border-r border-[#3b4a54]',
+              'flex-1 px-4 py-4 text-sm font-medium text-muted-foreground',
+              'hover:bg-muted hover:text-foreground transition-colors',
+              'border-r border-border/50',
               'disabled:opacity-50'
             )}
           >
@@ -95,8 +97,8 @@ export function DeleteMessageModal() {
             onClick={handleDelete}
             disabled={isLoading}
             className={cn(
-              'flex-1 px-4 py-3 text-sm font-medium text-red-500',
-              'hover:bg-red-500/10 transition-colors',
+              'flex-1 px-4 py-4 text-sm font-medium text-destructive',
+              'hover:bg-destructive/10 transition-colors',
               'disabled:opacity-50'
             )}
           >

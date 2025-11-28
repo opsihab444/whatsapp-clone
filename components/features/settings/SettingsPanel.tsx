@@ -15,7 +15,7 @@ export function SettingsPanel() {
   const { data: currentUser, isLoading: isUserLoading } = useCurrentUser();
   const supabase = useMemo(() => createClient(), []);
   const queryClient = useQueryClient();
-  
+
   const [activeSection, setActiveSection] = useState<'profile' | 'password' | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
@@ -28,7 +28,7 @@ export function SettingsPanel() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   const [name, setName] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -150,17 +150,17 @@ export function SettingsPanel() {
 
   const onPasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!currentPassword || !newPassword || !confirmPassword) {
       setErrorMessage('All fields are required');
       return;
     }
-    
+
     if (newPassword !== confirmPassword) {
       setErrorMessage('Passwords do not match');
       return;
     }
-    
+
     if (newPassword.length < 6) {
       setErrorMessage('Password must be at least 6 characters');
       return;
@@ -214,7 +214,7 @@ export function SettingsPanel() {
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="flex items-center gap-4 px-6 py-4 border-b border-border bg-card/50 backdrop-blur-sm min-h-[64px]">
+      <div className="flex items-center gap-4 px-6 py-4 border-b border-border/50 bg-background/80 backdrop-blur-xl min-h-[64px] sticky top-0 z-10">
         <Button
           variant="ghost"
           size="icon"

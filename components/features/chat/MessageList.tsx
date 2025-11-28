@@ -324,7 +324,7 @@ function MessageListComponent({ conversationId, currentUserId, otherUserAvatarUr
             */}
             <div
                 ref={setRef}
-                className="h-full overflow-y-auto scrollbar-thin flex flex-col"
+                className="h-full overflow-y-auto scrollbar-thin flex flex-col pb-24"
                 style={{ transform: 'scaleY(-1)' }}
             >
                 <div

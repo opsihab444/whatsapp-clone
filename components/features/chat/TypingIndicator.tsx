@@ -31,8 +31,8 @@ export function TypingIndicator({ userName, typingUsers = [], maxAvatars = 4 }: 
         {hasMultipleUsers && (
           <div className="flex items-center -space-x-2">
             {displayUsers.map((user, index) => (
-              <Avatar 
-                key={user.userId} 
+              <Avatar
+                key={user.userId}
                 className={cn(
                   "h-7 w-7 border-2 border-background",
                   "ring-2 ring-background"
@@ -46,7 +46,7 @@ export function TypingIndicator({ userName, typingUsers = [], maxAvatars = 4 }: 
               </Avatar>
             ))}
             {remainingCount > 0 && (
-              <div 
+              <div
                 className="h-7 w-7 rounded-full bg-muted border-2 border-background flex items-center justify-center text-[10px] text-muted-foreground font-medium"
                 style={{ zIndex: 0 }}
               >
@@ -59,24 +59,24 @@ export function TypingIndicator({ userName, typingUsers = [], maxAvatars = 4 }: 
         <div className="flex flex-col max-w-[75%] md:max-w-[65%] relative items-start">
           <div className="flex relative">
             {/* Tail SVG - same as incoming message */}
-            <div className="absolute top-0 w-2 h-3 z-10 -left-2">
+            <div className="absolute top-[-1px] w-2 h-3 z-10 -left-2">
               <svg viewBox="0 0 8 13" height="13" width="8" preserveAspectRatio="none" className="fill-chat-bubble-in block">
                 <path d="M1.533 3.568L8 12.193V1H2.812C1.042 1 .474 2.156 1.533 3.568z"></path>
               </svg>
             </div>
-            
+
             {/* WhatsApp style bubble with animated dots */}
-            <div className="bg-chat-bubble-in rounded-lg rounded-tl-none px-4 py-3 shadow-[0_1px_0.5px_rgba(11,20,26,0.13)]">
+            <div className="bg-[hsl(var(--chat-bubble-in))] rounded-[22px] rounded-tl-none px-4 py-3">
               <div className="flex items-center gap-1">
-                <span 
+                <span
                   className="w-2 h-2 bg-[#8696a0] rounded-full animate-typing-dot"
                   style={{ animationDelay: '0ms' }}
                 />
-                <span 
+                <span
                   className="w-2 h-2 bg-[#8696a0] rounded-full animate-typing-dot"
                   style={{ animationDelay: '150ms' }}
                 />
-                <span 
+                <span
                   className="w-2 h-2 bg-[#8696a0] rounded-full animate-typing-dot"
                   style={{ animationDelay: '300ms' }}
                 />

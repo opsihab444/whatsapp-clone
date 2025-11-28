@@ -19,15 +19,18 @@ export function EmptyState() {
         </div>
 
         <h1 className="text-3xl font-light text-foreground mb-4 tracking-tight">
-          Download WhatsApp for Windows
+          WhatsApp Web
         </h1>
         <p className="text-muted-foreground text-sm leading-6 mb-8">
-          Make calls, share your screen and get a faster experience when you download the Windows app.
+          Send and receive messages without keeping your phone online.<br />
+          Use WhatsApp on up to 4 linked devices and 1 phone.
         </p>
 
-        <button className="bg-primary text-primary-foreground px-6 py-2.5 rounded-full font-medium text-sm hover:bg-primary/90 transition-colors shadow-sm">
-          Get the app
-        </button>
+        <div className="flex gap-4 justify-center">
+          <button className="bg-primary text-primary-foreground px-6 py-2.5 rounded-full font-medium text-sm hover:bg-primary/90 transition-all shadow-md hover:shadow-lg hover:scale-105 active:scale-95">
+            Start Chatting
+          </button>
+        </div>
       </div>
 
       <div className="absolute bottom-10 flex items-center gap-2 text-muted-foreground/60 text-xs">

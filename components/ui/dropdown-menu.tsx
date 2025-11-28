@@ -137,7 +137,19 @@ export const DropdownMenuContent = React.forwardRef<
           left = triggerRect.left + (triggerRect.width - contentRect.width) / 2;
         }
 
-        const top = triggerRect.bottom + 8;
+        // Smart positioning: Check if there's space below
+        const spaceBelow = window.innerHeight - triggerRect.bottom;
+        const spaceAbove = triggerRect.top;
+        const height = contentRect.height;
+
+        let top;
+        // If not enough space below AND more space above, flip upwards
+        if (spaceBelow < height + 10 && spaceAbove > spaceBelow) {
+          top = triggerRect.top - height - 8;
+          // Add animation class for upward opening if needed
+        } else {
+          top = triggerRect.bottom + 8;
+        }
 
         setPosition({ top, left });
       }
