@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Users, Shield, UserMinus, LogOut, Crown, MoreVertical, UserPlus, Search, Loader2 } from 'lucide-react';
+import { X, Users, Shield, UserMinus, LogOut, Crown, MoreVertical, UserPlus, Search, Loader2, Image as ImageIcon, ChevronRight } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,7 +58,6 @@ export function GroupInfoPanel({
     }
     return email.slice(0, 2).toUpperCase();
   };
-
 
   const handleSearch = async (query: string) => {
     setSearchQuery(query);
@@ -120,47 +120,74 @@ export function GroupInfoPanel({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
+    <>
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-
+      <div 
+        className={`absolute inset-0 bg-black/20 z-40 transition-opacity duration-300 ${
+          isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        }`}
+        onClick={onClose}
+      />
+      
       {/* Panel */}
-      <div className="relative w-full max-w-md bg-background h-full shadow-2xl animate-in slide-in-from-right duration-300 flex flex-col">
+      <div 
+        className={`absolute top-0 right-0 h-full w-[340px] bg-background border-l border-border/50 flex flex-col z-50 transition-transform duration-300 ease-in-out ${
+          isOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
         {/* Header */}
-        <div className="flex items-center gap-4 px-4 py-4 bg-primary text-primary-foreground">
-          <Button variant="ghost" size="icon" onClick={onClose} className="hover:bg-white/10">
-            <X className="h-5 w-5" />
+        <div className="flex items-center gap-6 px-4 py-3 bg-background border-b border-border/50 min-h-[70px]">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 text-muted-foreground hover:bg-secondary hover:text-foreground rounded-full transition-all duration-300"
+            onClick={onClose}
+          >
+            <X className="h-6 w-6" />
           </Button>
-          <h2 className="text-lg font-medium">Group info</h2>
+          <h2 className="text-foreground text-base font-medium">Group info</h2>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto">
+        <ScrollArea className="flex-1">
           {/* Group Avatar & Name */}
-          <div className="flex flex-col items-center py-8 bg-muted/30">
-            <Avatar className="h-32 w-32 mb-4">
+          <div className="flex flex-col items-center py-10 bg-background">
+            <Avatar className="h-[200px] w-[200px] mb-4">
               {groupAvatar && <AvatarImage src={groupAvatar} />}
-              <AvatarFallback className="bg-primary/20 text-primary text-4xl">
-                <Users className="h-16 w-16" />
+              <AvatarFallback className="bg-muted text-muted-foreground text-6xl">
+                <Users className="h-24 w-24" />
               </AvatarFallback>
             </Avatar>
-            <h3 className="text-2xl font-semibold text-foreground">{groupName}</h3>
-            <p className="text-sm text-muted-foreground mt-1">Group · {members.length} members</p>
+            <h3 className="text-[22px] text-foreground font-normal mt-2">{groupName}</h3>
+            <p className="text-[14px] text-muted-foreground mt-1">Group · {members.length} members</p>
           </div>
 
           {/* Description */}
           {groupDescription && (
-            <div className="px-6 py-4 border-b border-border">
+            <div className="px-6 py-4 border-t border-border/50">
               <p className="text-xs text-muted-foreground mb-1">Description</p>
               <p className="text-sm text-foreground">{groupDescription}</p>
             </div>
           )}
 
+          {/* Media Section */}
+          <div className="border-t border-border/50">
+            <div 
+              className="flex items-center justify-between px-8 py-4 hover:bg-secondary/50 cursor-pointer transition-colors"
+            >
+              <div className="flex items-center gap-6">
+                <ImageIcon className="h-5 w-5 text-muted-foreground" />
+                <span className="text-foreground text-[15px]">Media, links and docs</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground text-sm">0</span>
+                <ChevronRight className="h-5 w-5 text-muted-foreground" />
+              </div>
+            </div>
+          </div>
+
           {/* Members Section */}
-          <div className="py-4">
+          <div className="py-4 border-t border-border/50">
             <div className="flex items-center justify-between px-6 mb-3">
               <p className="text-sm text-muted-foreground">{members.length} members</p>
               {isAdmin && (
@@ -198,7 +225,7 @@ export function GroupInfoPanel({
                       <button
                         key={user.id}
                         onClick={() => handleAddMember(user.id)}
-                        className="w-full flex items-center gap-3 px-3 py-2 hover:bg-muted transition-colors"
+                        className="w-full flex items-center gap-3 px-3 py-2 hover:bg-secondary transition-colors"
                       >
                         <Avatar className="h-8 w-8">
                           {user.avatar_url && <AvatarImage src={user.avatar_url} />}
@@ -221,7 +248,6 @@ export function GroupInfoPanel({
             <div className="space-y-1">
               {members
                 .sort((a, b) => {
-                  // Creator first, then admins, then members
                   if (a.user_id === createdBy) return -1;
                   if (b.user_id === createdBy) return 1;
                   if (a.role === 'admin' && b.role !== 'admin') return -1;
@@ -236,18 +262,18 @@ export function GroupInfoPanel({
                   return (
                     <div
                       key={member.user_id}
-                      className="flex items-center gap-3 px-6 py-3 hover:bg-muted/50 transition-colors"
+                      className="flex items-center gap-3 px-6 py-3 hover:bg-secondary/50 transition-colors"
                     >
-                      <Avatar className="h-12 w-12">
+                      <Avatar className="h-10 w-10">
                         {member.profile?.avatar_url && <AvatarImage src={member.profile.avatar_url} />}
-                        <AvatarFallback className="bg-primary/10 text-primary">
+                        <AvatarFallback className="bg-muted text-muted-foreground">
                           {getInitials(member.profile?.full_name || null, member.profile?.email || '')}
                         </AvatarFallback>
                       </Avatar>
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="font-medium text-foreground truncate">
+                          <p className="font-medium text-foreground truncate text-sm">
                             {member.profile?.full_name || member.profile?.email || 'Unknown'}
                             {isCurrentUser && <span className="text-muted-foreground"> (You)</span>}
                           </p>
@@ -268,7 +294,6 @@ export function GroupInfoPanel({
                         </div>
                       </div>
 
-                      {/* Actions dropdown - only for admins, not for self or creator */}
                       {isAdmin && !isCurrentUser && !isMemberCreator && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -305,7 +330,7 @@ export function GroupInfoPanel({
           </div>
 
           {/* Leave Group */}
-          <div className="px-6 py-4 border-t border-border">
+          <div className="px-6 py-4 border-t border-border/50">
             <button
               onClick={async () => {
                 if (!currentUserId || isLeaving) return;
@@ -313,10 +338,8 @@ export function GroupInfoPanel({
                 const supabase = createClient();
                 const result = await leaveGroup(supabase, groupId);
                 if (result.success) {
-                  // Invalidate groups cache to remove from sidebar
                   await queryClient.invalidateQueries({ queryKey: ['groups'] });
                   onClose();
-                  // Navigate to home
                   router.push('/');
                 }
                 setIsLeaving(false);
@@ -332,8 +355,8 @@ export function GroupInfoPanel({
               <span>{isLeaving ? 'Leaving...' : 'Exit group'}</span>
             </button>
           </div>
-        </div>
+        </ScrollArea>
       </div>
-    </div>
+    </>
   );
 }

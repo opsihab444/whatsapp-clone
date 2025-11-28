@@ -203,7 +203,8 @@ export function useRealtime() {
             // Handle read status based on visibility
             if (isWindowVisible && user && newMessage.sender_id !== user.id) {
               // Mark as read and keep unread count at 0
-              await updateMessageStatus(supabase, newMessage.id, 'read');
+              // Pass conversationId for broadcast to sender
+              await updateMessageStatus(supabase, newMessage.id, 'read', newMessage.conversation_id);
               newMessage.status = 'read';
 
               // Keep unread count at 0 in local cache (don't let it increment)
@@ -983,6 +984,8 @@ export function useRealtime() {
             if (user && readerId === user.id) return;
 
             // Update message status to 'read' in cache
+            // Mark ALL own messages as read (not just the ones in messageIds)
+            // because when recipient reads, they read all previous messages too
             queryClient.setQueryData<{ pages: Message[][]; pageParams: number[] }>(
               ['messages', conv.id],
               (old) => {
@@ -991,9 +994,19 @@ export function useRealtime() {
                 return {
                   ...old,
                   pages: old.pages.map((page) =>
-                    page.map((msg) =>
-                      messageIds.includes(msg.id) ? { ...msg, status: 'read' as const } : msg
-                    )
+                    page.map((msg) => {
+                      // If this message is in the broadcast list, mark as read
+                      if (messageIds.includes(msg.id)) {
+                        return { ...msg, status: 'read' as const };
+                      }
+                      // Also mark all own messages that are sent/delivered as read
+                      // (recipient reading means they've seen all previous messages)
+                      if (user && msg.sender_id === user.id && 
+                          (msg.status === 'sent' || msg.status === 'delivered')) {
+                        return { ...msg, status: 'read' as const };
+                      }
+                      return msg;
+                    })
                   ),
                 };
               }
@@ -1056,6 +1069,8 @@ export function useRealtime() {
             if (user && readerId === user.id) return;
 
             // Update message status to 'read' in cache
+            // Mark ALL own messages as read (not just the ones in messageIds)
+            // because when recipient reads, they read all previous messages too
             queryClient.setQueryData<{ pages: Message[][]; pageParams: number[] }>(
               ['messages', conv.id],
               (old) => {
@@ -1064,9 +1079,19 @@ export function useRealtime() {
                 return {
                   ...old,
                   pages: old.pages.map((page) =>
-                    page.map((msg) =>
-                      messageIds.includes(msg.id) ? { ...msg, status: 'read' as const } : msg
-                    )
+                    page.map((msg) => {
+                      // If this message is in the broadcast list, mark as read
+                      if (messageIds.includes(msg.id)) {
+                        return { ...msg, status: 'read' as const };
+                      }
+                      // Also mark all own messages that are sent/delivered as read
+                      // (recipient reading means they've seen all previous messages)
+                      if (user && msg.sender_id === user.id && 
+                          (msg.status === 'sent' || msg.status === 'delivered')) {
+                        return { ...msg, status: 'read' as const };
+                      }
+                      return msg;
+                    })
                   ),
                 };
               }

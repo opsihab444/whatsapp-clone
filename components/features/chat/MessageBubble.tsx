@@ -182,32 +182,10 @@ function ImageMessageContent({
         </>
       )}
 
-      {/* Sending overlay with large spinner */}
+      {/* Sending overlay - subtle indicator */}
       {status === 'sending' && (
-        <div className="absolute inset-0 bg-black/50 rounded-2xl flex items-center justify-center">
-          <div className="relative">
-            <svg className="w-16 h-16 animate-spin" viewBox="0 0 50 50">
-              <circle
-                cx="25"
-                cy="25"
-                r="20"
-                fill="none"
-                stroke="rgba(255,255,255,0.2)"
-                strokeWidth="4"
-              />
-              <circle
-                cx="25"
-                cy="25"
-                r="20"
-                fill="none"
-                stroke="white"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeDasharray="80"
-                strokeDashoffset="60"
-              />
-            </svg>
-          </div>
+        <div className="absolute inset-0 bg-black/30 rounded-2xl flex items-center justify-center">
+          <Loader2 className="w-6 h-6 text-white/80 animate-spin" />
         </div>
       )}
 
@@ -270,11 +248,11 @@ function MessageBubbleComponent({
   const renderStatusBelow = () => {
     if (!isOwnMessage) return null;
 
-    // Show "Sending..." for queued/sending messages
+    // Show subtle indicator for queued/sending messages - no animation
     if ((status === 'queued' || status === 'sending') && showSeenAvatar) {
       return (
         <div className="flex justify-end mt-1 mr-1">
-          <span className="text-[11px] text-muted-foreground">Sending...</span>
+          <div className="w-3 h-3 rounded-full border border-muted-foreground/50" />
         </div>
       );
     }
@@ -337,7 +315,7 @@ function MessageBubbleComponent({
   return (
     <div
       className={cn(
-        'flex w-full mb-2 group relative px-[4%] md:px-[8%] animate-slide-up',
+        'flex w-full mb-2 group relative px-[4%] md:px-[8%]',
         isOwnMessage ? 'justify-end' : 'justify-start'
       )}
       role="article"
@@ -398,7 +376,7 @@ function MessageBubbleComponent({
             ) : (
               <>
                 {/* Text message content with space for timestamp */}
-                <div className="whitespace-pre-wrap break-words pr-[75px] pb-[3px] min-h-[22px]">
+                <div className="whitespace-pre-wrap break-words overflow-wrap-anywhere word-break-break-word pr-[75px] pb-[3px] min-h-[22px]" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                   {displayContent}
                 </div>
 

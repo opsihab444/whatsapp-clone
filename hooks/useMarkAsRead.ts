@@ -24,12 +24,24 @@ export function useMarkAsRead(conversationId: string | null) {
     if (document.visibilityState !== 'visible') return;
     if (isMarkingRef.current) return; // Prevent concurrent calls
 
-    // Check if conversation has unread messages first
+    // Check if conversation has unread messages OR any unread messages in cache
     const conversations = queryClient.getQueryData<Conversation[]>(['conversations']);
     const currentConv = conversations?.find(c => c.id === conversationId);
 
-    // Skip if no unread messages
-    if (!currentConv || currentConv.unread_count === 0) {
+    // Also check if there are any sent/delivered messages from other user in cache
+    const messagesData = queryClient.getQueryData<{ pages: Array<Array<{ id: string; sender_id: string; status: string }>> }>(['messages', conversationId]);
+    const hasUnreadMessagesInCache = messagesData?.pages?.some(page => 
+      page.some(msg => {
+        // Get current user from conversation
+        const currentUserId = currentConv?.participant_1_id === currentConv?.other_user?.id 
+          ? currentConv?.participant_2_id 
+          : currentConv?.participant_1_id;
+        return msg.sender_id !== currentUserId && (msg.status === 'sent' || msg.status === 'delivered');
+      })
+    );
+
+    // Skip if no unread messages in both unread_count and cache
+    if (!currentConv || (currentConv.unread_count === 0 && !hasUnreadMessagesInCache)) {
       return;
     }
 
@@ -58,6 +70,32 @@ export function useMarkAsRead(conversationId: string | null) {
               : conv
           );
         });
+
+        // Also update message status in cache to 'read' for all messages from other user
+        // This ensures UI shows correct status even if realtime event is missed
+        queryClient.setQueryData<{ pages: Array<Array<{ id: string; sender_id: string; status: string }>> }>(
+          ['messages', conversationId],
+          (old) => {
+            if (!old) return old;
+            
+            const currentUserId = currentConv?.participant_1_id === currentConv?.other_user?.id 
+              ? currentConv?.participant_2_id 
+              : currentConv?.participant_1_id;
+
+            return {
+              ...old,
+              pages: old.pages.map(page =>
+                page.map(msg => {
+                  // Update status to 'read' for messages from other user that are sent/delivered
+                  if (msg.sender_id !== currentUserId && (msg.status === 'sent' || msg.status === 'delivered')) {
+                    return { ...msg, status: 'read' };
+                  }
+                  return msg;
+                })
+              ),
+            };
+          }
+        );
       }
     } finally {
       isMarkingRef.current = false;

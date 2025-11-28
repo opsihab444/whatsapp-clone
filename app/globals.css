@@ -223,7 +223,7 @@ input[type="search"]::-webkit-search-results-decoration {
 }
 
 .animate-slide-up {
-  animation: slideUp 0.3s ease-out;
+  animation: slideUp 0.3s ease-out both;
 }
 
 .animate-scale-in {
@@ -277,4 +277,16 @@ input[type="search"]::-webkit-search-results-decoration {
     linear-gradient(to right, hsl(var(--primary) / 0.1) 1px, transparent 1px),
     linear-gradient(to bottom, hsl(var(--primary) / 0.1) 1px, transparent 1px);
   background-size: 40px 40px;
+}
+
+/* S
+mooth message transitions - prevent flash/bump */
+.chat-background [data-index] {
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+/* Message bubble smooth appearance */
+.chat-background [data-index]>div {
+  opacity: 1;
 }

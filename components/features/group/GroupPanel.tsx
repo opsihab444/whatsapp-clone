@@ -446,7 +446,7 @@ export function GroupPanel({ groupId }: GroupPanelProps) {
     .join(', ');
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="relative flex flex-col h-full overflow-hidden">
       {/* Header */}
       <header className="flex items-center justify-between bg-background px-4 py-2 border-b border-border z-10 shadow-sm min-h-[64px]">
         <button
