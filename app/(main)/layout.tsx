@@ -6,12 +6,12 @@ import { SidebarHeader } from '@/components/features/sidebar/SidebarHeader';
 import { ChatList } from '@/components/features/sidebar/ChatList';
 import { NetworkStatus } from '@/components/NetworkStatus';
 import { UserSearchResult } from '@/components/features/sidebar/UserSearchResult';
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useUIStore } from '@/store/ui.store';
 import { createClient } from '@/lib/supabase/client';
 import { Menu, ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { searchUserByEmail, getOrCreateConversation } from '@/services/chat.service';
+import { searchUsers, getOrCreateConversation } from '@/services/chat.service';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { CreateGroupModal } from '@/components/features/group/CreateGroupModal';
@@ -111,49 +111,71 @@ export default function MainLayout({
     setActiveGroupId(groupId);
   };
 
-  const [searchResult, setSearchResult] = useState<{
+  const [searchResults, setSearchResults] = useState<{
     id: string;
     email: string;
     full_name: string | null;
     avatar_url: string | null;
-  } | null>(null);
+  }[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleSearchSubmit = async (query: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(query)) {
-      toast({
-        title: 'Invalid email',
-        description: 'Please enter a valid email address',
-        variant: 'destructive',
-      });
+  // Realtime search function - searches by name or email
+  const performSearch = useCallback(async (query: string) => {
+    // Clear previous results if query is too short
+    if (!query.trim() || query.trim().length < 2) {
+      setSearchResults([]);
+      setIsSearching(false);
       return;
     }
 
     setIsSearching(true);
 
-    const result = await searchUserByEmail(supabase, query);
+    const result = await searchUsers(supabase, query);
     setIsSearching(false);
 
     if (!result.success) {
-      toast({
-        title: 'Error',
-        description: result.error.message,
-        variant: 'destructive',
-      });
+      setSearchResults([]);
       return;
     }
 
-    if (!result.data) {
-      toast({
-        title: 'User not found',
-        description: 'No user found with this email address',
-        variant: 'destructive',
-      });
+    setSearchResults(result.data);
+  }, [supabase]);
+
+  // Debounced search effect - triggers on every searchQuery change
+  useEffect(() => {
+    // Clear previous timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // If query is empty or too short, clear results immediately
+    if (!searchQuery.trim() || searchQuery.trim().length < 2) {
+      setSearchResults([]);
+      setIsSearching(false);
       return;
     }
 
-    setSearchResult(result.data);
+    // Set new debounce timer (400ms delay)
+    debounceTimerRef.current = setTimeout(() => {
+      performSearch(searchQuery);
+    }, 400);
+
+    // Cleanup on unmount or query change
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [searchQuery, performSearch]);
+
+  // Keep handleSearchSubmit for Enter key (immediate search)
+  const handleSearchSubmit = async (query: string) => {
+    // Clear debounce timer for immediate search
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    performSearch(query);
   };
 
   const handleStartChat = async (userId: string) => {
@@ -168,14 +190,15 @@ export default function MainLayout({
       return;
     }
 
+    // Clear search state
     setSearchQuery('');
-    setSearchResult(null);
+    setSearchResults([]);
 
-    queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    // Refresh conversations list
+    await queryClient.invalidateQueries({ queryKey: ['conversations'] });
 
-    setTimeout(() => {
-      handleChatSelect(convResult.data);
-    }, 100);
+    // Open the conversation
+    handleChatSelect(convResult.data);
   };
 
   // Handle back button on mobile
@@ -232,16 +255,20 @@ export default function MainLayout({
                 <div className="flex items-center justify-center h-32">
                   <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                 </div>
-              ) : searchResult ? (
+              ) : searchResults.length > 0 ? (
                 <div className="flex flex-col h-full animate-fade-in">
                   <div className="px-4 py-3 text-xs font-semibold text-muted-foreground bg-muted/30 border-b">
-                    SEARCH RESULTS
+                    SEARCH RESULTS ({searchResults.length})
                   </div>
-                  <UserSearchResult user={searchResult} onStartChat={handleStartChat} />
-                  <div className="px-4 py-3 bg-muted/30 border-t mt-auto">
+                  <div className="flex-1 overflow-y-auto">
+                    {searchResults.map((user) => (
+                      <UserSearchResult key={user.id} user={user} onStartChat={handleStartChat} />
+                    ))}
+                  </div>
+                  <div className="px-4 py-3 bg-muted/30 border-t">
                     <button
                       onClick={() => {
-                        setSearchResult(null);
+                        setSearchResults([]);
                         setSearchQuery('');
                       }}
                       className="text-sm text-primary hover:underline font-medium"

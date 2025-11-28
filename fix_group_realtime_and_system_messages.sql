@@ -66,6 +66,7 @@ DO $$ BEGIN ALTER PUBLICATION supabase_realtime DROP TABLE public.group_messages
 DO $$ BEGIN ALTER PUBLICATION supabase_realtime DROP TABLE public.groups; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 DO $$ BEGIN ALTER PUBLICATION supabase_realtime DROP TABLE public.group_members; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 DO $$ BEGIN ALTER PUBLICATION supabase_realtime DROP TABLE public.group_unread_counts; EXCEPTION WHEN OTHERS THEN NULL; END $$;
+DO $$ BEGIN ALTER PUBLICATION supabase_realtime DROP TABLE public.profiles; EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 -- Add all tables to realtime publication
 ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
@@ -75,6 +76,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.group_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.groups;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.group_members;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.group_unread_counts;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
 
 -- ========================================
 -- DONE! এখন যা কাজ করবে:

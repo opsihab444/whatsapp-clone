@@ -94,7 +94,15 @@ function ChatRowComponent({
 
   // Format last message with "You:" prefix if sent by current user
   const formatLastMessage = () => {
-    if (!last_message_content) return 'No messages yet';
+    // If no content but has timestamp, it's likely an image message (content is null for images)
+    if (!last_message_content) {
+      if (last_message_time) {
+        // Has a message but content is null - likely an image
+        const isOwnMessage = currentUserId && last_message_sender_id === currentUserId;
+        return isOwnMessage ? 'You: 📷 Photo' : '📷 Photo';
+      }
+      return 'No messages yet';
+    }
 
     const isOwnMessage = currentUserId && last_message_sender_id === currentUserId;
     const prefix = isOwnMessage ? 'You: ' : '';
@@ -186,6 +194,9 @@ export const ChatRow = React.memo(ChatRowComponent, (prevProps, nextProps) => {
     prevProps.conversation.last_message_time === nextProps.conversation.last_message_time &&
     prevProps.conversation.last_message_sender_id === nextProps.conversation.last_message_sender_id &&
     prevProps.conversation.unread_count === nextProps.conversation.unread_count &&
+    // Check for profile updates (name/avatar changes)
+    prevProps.conversation.other_user?.full_name === nextProps.conversation.other_user?.full_name &&
+    prevProps.conversation.other_user?.avatar_url === nextProps.conversation.other_user?.avatar_url &&
     prevProps.isActive === nextProps.isActive &&
     prevProps.searchQuery === nextProps.searchQuery &&
     prevProps.currentUserId === nextProps.currentUserId

@@ -120,7 +120,10 @@ function GroupRowComponent({
       ? `${last_message_sender_name.split(' ')[0]}: `
       : '';
 
-  const lastMessage = last_message_content || 'No messages yet';
+  // If no content but has timestamp, it's likely an image message (content is null for images)
+  const lastMessage = last_message_content 
+    ? last_message_content 
+    : (last_message_time ? '📷 Photo' : 'No messages yet');
   const timestamp = last_message_time ? formatConversationTime(last_message_time) : '';
 
   return (
@@ -205,7 +208,11 @@ export const GroupRow = React.memo(GroupRowComponent, (prevProps, nextProps) => 
     prevProps.group.last_message_content === nextProps.group.last_message_content &&
     prevProps.group.last_message_time === nextProps.group.last_message_time &&
     prevProps.group.last_message_sender_id === nextProps.group.last_message_sender_id &&
+    prevProps.group.last_message_sender_name === nextProps.group.last_message_sender_name &&
     prevProps.group.unread_count === nextProps.group.unread_count &&
+    // Check for group info updates (name/avatar changes)
+    prevProps.group.group?.name === nextProps.group.group?.name &&
+    prevProps.group.group?.avatar_url === nextProps.group.group?.avatar_url &&
     prevProps.isActive === nextProps.isActive &&
     prevProps.searchQuery === nextProps.searchQuery &&
     prevProps.currentUserId === nextProps.currentUserId

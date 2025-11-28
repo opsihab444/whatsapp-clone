@@ -379,8 +379,13 @@ CREATE INDEX IF NOT EXISTS idx_groups_updated_at ON public.groups(updated_at DES
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.profiles (id, email, full_name)
-  VALUES (NEW.id, NEW.email, NEW.raw_user_meta_data->>'full_name');
+  INSERT INTO public.profiles (id, email, full_name, avatar_url)
+  VALUES (
+    NEW.id, 
+    NEW.email, 
+    NEW.raw_user_meta_data->>'full_name',
+    NEW.raw_user_meta_data->>'avatar_url'
+  );
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -545,9 +550,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.group_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.groups;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.group_members;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.group_unread_counts;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
 
 -- ========================================
 -- COMPLETE! 
 -- ========================================
 -- এখন তোমার WhatsApp Clone এর পুরো database ready!
 -- One-to-One chat + Group chat দুটোই realtime এ কাজ করবে
+-- Profile updates (name/avatar) ও realtime এ sync হবে

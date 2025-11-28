@@ -783,6 +783,105 @@ export function useRealtime() {
           }
         }
       )
+      // Listen for profile updates (name/avatar changes) - realtime sync across all users
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+        },
+        async (payload) => {
+          const updatedProfile = payload.new as {
+            id: string;
+            email: string;
+            full_name: string | null;
+            avatar_url: string | null;
+            created_at: string;
+          };
+
+          console.log('[Realtime] Profile UPDATE received:', updatedProfile.id?.substring(0, 8));
+
+          // Update profile in conversations cache (for 1-on-1 chats)
+          queryClient.setQueryData<Conversation[]>(['conversations'], (old) => {
+            if (!old) return old;
+            return old.map((conv) => {
+              if (conv.other_user?.id === updatedProfile.id) {
+                return {
+                  ...conv,
+                  other_user: {
+                    ...conv.other_user,
+                    full_name: updatedProfile.full_name,
+                    avatar_url: updatedProfile.avatar_url,
+                    email: updatedProfile.email,
+                  },
+                };
+              }
+              return conv;
+            });
+          });
+
+          // Update profile in group members cache
+          queryClient.setQueriesData<{ id: string; email: string; full_name: string | null; avatar_url: string | null; role: string; joined_at: string }[]>(
+            { queryKey: ['group-members'] },
+            (old) => {
+              if (!old) return old;
+              return old.map((member) => {
+                if (member.id === updatedProfile.id) {
+                  return {
+                    ...member,
+                    full_name: updatedProfile.full_name,
+                    avatar_url: updatedProfile.avatar_url,
+                    email: updatedProfile.email,
+                  };
+                }
+                return member;
+              });
+            }
+          );
+
+          // Update sender info in group messages cache
+          queryClient.setQueriesData<{ pages: GroupMessage[][] }>(
+            { queryKey: ['group-messages'] },
+            (old) => {
+              if (!old) return old;
+              return {
+                ...old,
+                pages: old.pages.map((page) =>
+                  page.map((msg) => {
+                    if (msg.sender_id === updatedProfile.id && msg.sender) {
+                      return {
+                        ...msg,
+                        sender: {
+                          ...msg.sender,
+                          full_name: updatedProfile.full_name,
+                          avatar_url: updatedProfile.avatar_url,
+                          email: updatedProfile.email,
+                        },
+                      };
+                    }
+                    return msg;
+                  })
+                ),
+              };
+            }
+          );
+
+          // Update current user cache if it's the logged-in user
+          const user = await getCachedUser(supabase);
+          if (user && user.id === updatedProfile.id) {
+            queryClient.setQueryData(['currentUser'], (old: any) => {
+              if (!old) return old;
+              return {
+                ...old,
+                name: updatedProfile.full_name,
+                avatar: updatedProfile.avatar_url,
+                email: updatedProfile.email,
+              };
+            });
+          }
+        }
+      )
       .subscribe((status, err) => {
         if (status === 'SUBSCRIBED') {
           isGroupSubscribed = true;

@@ -263,6 +263,62 @@ export async function searchUserByEmail(
 }
 
 /**
+ * Search for users by name or email (realtime search)
+ */
+export async function searchUsers(
+  supabase: SupabaseClient,
+  query: string
+): Promise<ServiceResult<{ id: string; email: string; full_name: string | null; avatar_url: string | null }[]>> {
+  try {
+    const user = await getCachedUser(supabase);
+    
+    if (!user) {
+      return {
+        success: false,
+        error: {
+          type: 'AUTH_ERROR',
+          message: 'User not authenticated',
+        },
+      };
+    }
+
+    const searchTerm = query.toLowerCase().trim();
+    
+    if (searchTerm.length < 2) {
+      return { success: true, data: [] };
+    }
+
+    // Search for users by name or email (excluding current user)
+    const { data: profiles, error: profileError } = await supabase
+      .from('profiles')
+      .select('id, email, full_name, avatar_url')
+      .neq('id', user.id)
+      .or(`full_name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%`)
+      .limit(10);
+
+    if (profileError) {
+      return {
+        success: false,
+        error: {
+          type: 'NETWORK_ERROR',
+          message: profileError.message,
+        },
+      };
+    }
+
+    return { success: true, data: profiles || [] };
+  } catch (error) {
+    return {
+      success: false,
+      error: {
+        type: 'UNKNOWN_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+      },
+    };
+  }
+}
+
+/**
  * Create or get existing conversation with a user
  */
 export async function getOrCreateConversation(
