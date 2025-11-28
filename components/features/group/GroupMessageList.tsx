@@ -28,10 +28,10 @@ const dimensionCache = new Map<string, { width: number; height: number }>();
 // Calculate display dimensions with max size constraint
 function calculateDisplayDimensions(w: number | null | undefined, h: number | null | undefined, maxSize = 300) {
   if (!w || !h) return { width: 200, height: 200 };
-  
+
   let displayW = w;
   let displayH = h;
-  
+
   if (w > maxSize || h > maxSize) {
     if (w > h) {
       displayH = Math.round((h / w) * maxSize);
@@ -41,7 +41,7 @@ function calculateDisplayDimensions(w: number | null | undefined, h: number | nu
       displayH = maxSize;
     }
   }
-  
+
   return { width: displayW, height: displayH };
 }
 
@@ -69,7 +69,7 @@ function GroupImageMessageContent({
   const cachedBlobUrl = blobUrlCache.get(messageId) || blobUrlCache.get(mediaUrl) || blobUrl;
   const wasAlreadyLoaded = !isBlobUrl && loadedImageCache.has(mediaUrl);
   const cachedDimensions = dimensionCache.get(mediaUrl);
-  
+
   const containerRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(isLatest || wasAlreadyLoaded);
   const [cdnLoaded, setCdnLoaded] = useState(wasAlreadyLoaded);
@@ -92,7 +92,7 @@ function GroupImageMessageContent({
   // Lazy load with IntersectionObserver (only for non-latest images)
   useEffect(() => {
     if (isLatest || wasAlreadyLoaded || isVisible) return;
-    
+
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -102,11 +102,11 @@ function GroupImageMessageContent({
       },
       { rootMargin: '100px' }
     );
-    
+
     if (containerRef.current) {
       observer.observe(containerRef.current);
     }
-    
+
     return () => observer.disconnect();
   }, [isLatest, wasAlreadyLoaded, isVisible]);
 
@@ -137,7 +137,7 @@ function GroupImageMessageContent({
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     setCdnLoaded(true);
-    
+
     // Cache dimensions for future use (only if not already saved in DB)
     if (!width && !cachedDimensions) {
       const dims = calculateDisplayDimensions(img.naturalWidth, img.naturalHeight);
@@ -147,9 +147,9 @@ function GroupImageMessageContent({
 
   // Fixed container with exact dimensions (prevents layout shift)
   return (
-    <div 
+    <div
       ref={containerRef}
-      className="relative overflow-hidden rounded-lg bg-[#3a3b3c]" 
+      className="relative overflow-hidden rounded-lg bg-[#3a3b3c]"
       style={{ width: displayWidth, height: displayHeight }}
     >
       {/* Only load image when visible or is latest */}
@@ -232,7 +232,7 @@ function MessageDropdown({ message, isOwnMessage, groupId }: MessageDropdownProp
   const [openUpward, setOpenUpward] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
-  
+
   const openEditGroupMessageModal = useUIStore((state) => state.openEditGroupMessageModal);
   const openDeleteGroupMessageModal = useUIStore((state) => state.openDeleteGroupMessageModal);
 
@@ -271,7 +271,7 @@ function MessageDropdown({ message, isOwnMessage, groupId }: MessageDropdownProp
   };
 
   return (
-    <div 
+    <div
       ref={menuRef}
       className={cn(
         "absolute top-1 z-20",
@@ -281,8 +281,8 @@ function MessageDropdown({ message, isOwnMessage, groupId }: MessageDropdownProp
       <button
         className={cn(
           "h-5 w-5 inline-flex items-center justify-center rounded-full transition-all duration-200",
-          isMenuOpen 
-            ? "opacity-100 bg-black/20" 
+          isMenuOpen
+            ? "opacity-100 bg-black/20"
             : "opacity-0 group-hover/bubble:opacity-100 hover:bg-black/20",
           "text-white/80"
         )}
@@ -746,7 +746,11 @@ function GroupMessageListComponent({ groupId, currentUserId, members }: GroupMes
                 content = (
                   <div className={cn(
                     'flex w-full px-[4%] md:px-[8%] py-0.5',
-                    isOwn ? 'justify-end' : 'justify-start'
+                    isOwn ? 'justify-end' : 'justify-start',
+                    // Animate if message is new (< 3s) AND (not own message OR is sending)
+                    (Date.now() - new Date(message.created_at).getTime() < 3000) &&
+                    (!isOwn || message.status === 'sending') &&
+                    "animate-slide-up"
                   )}>
                     {/* Avatar for received messages - only show on first message of group */}
                     {!isOwn && (
@@ -801,10 +805,10 @@ function GroupMessageListComponent({ groupId, currentUserId, members }: GroupMes
                         >
                           {/* Dropdown menu - only show if not deleted */}
                           {!message.is_deleted && (
-                            <MessageDropdown 
-                              message={message} 
-                              isOwnMessage={isOwn} 
-                              groupId={groupId} 
+                            <MessageDropdown
+                              message={message}
+                              isOwnMessage={isOwn}
+                              groupId={groupId}
                             />
                           )}
                           {/* Sender name for received messages - only on first message of group */}

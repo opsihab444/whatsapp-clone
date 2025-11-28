@@ -60,6 +60,15 @@ function MessageListComponent({ conversationId, currentUserId, otherUserAvatarUr
     const typingUser = useUIStore((state) => state.typingUsers.get(conversationId));
     const isTyping = !!typingUser;
 
+    // Clear measured sizes cache when conversation changes
+    const prevConversationIdRef = useRef(conversationId);
+    useEffect(() => {
+        if (prevConversationIdRef.current !== conversationId) {
+            measuredSizesRef.current.clear();
+            prevConversationIdRef.current = conversationId;
+        }
+    }, [conversationId]);
+
     // Process messages: Deduplicate and Keep Newest -> Oldest
     const messages = useMemo(() => {
         if (!data?.pages) return [];
@@ -100,7 +109,7 @@ function MessageListComponent({ conversationId, currentUserId, otherUserAvatarUr
         return items;
     }, [messages, hasNextPage, isTyping]);
 
-    // Cache measured sizes to prevent jump on re-render
+    // Cache measured sizes to prevent jump on re-render - GLOBAL cache
     const measuredSizesRef = useRef<Map<string, number>>(new Map());
 
     // Get stable size estimate based on cached measurements
@@ -108,10 +117,10 @@ function MessageListComponent({ conversationId, currentUserId, otherUserAvatarUr
         const item = virtualItemsList[index];
         if (!item) return 60;
 
-        if (item.type === 'typing') return 40;
+        if (item.type === 'typing') return 48;
         if (item.type === 'loader') return 50;
 
-        // For messages, check if we have a cached size
+        // For messages, check if we have a cached size - use it immediately
         const cachedSize = measuredSizesRef.current.get(item.data.id);
         if (cachedSize) return cachedSize;
 
@@ -119,7 +128,6 @@ function MessageListComponent({ conversationId, currentUserId, otherUserAvatarUr
         if (item.data.type === 'image') {
             const { media_width, media_height } = item.data;
             if (media_width && media_height) {
-                // Calculate display height based on saved dimensions (max 300px width constraint)
                 const maxSize = 300;
                 let displayHeight = media_height;
                 if (media_width > maxSize || media_height > maxSize) {
@@ -129,47 +137,67 @@ function MessageListComponent({ conversationId, currentUserId, otherUserAvatarUr
                         displayHeight = maxSize;
                     }
                 }
-                // Add padding for bubble (8px top/bottom) + margin (8px)
                 return displayHeight + 24;
             }
-            // Fallback for images without saved dimensions - use consistent 200px
-            return 224; // 200px image + 24px padding
+            return 224;
         }
 
-        // Estimate based on content length
+        // Text messages - better estimation based on content
         const contentLength = item.data.content?.length || 0;
-        if (contentLength > 200) return 120;
-        if (contentLength > 100) return 80;
-        return 60;
+        if (contentLength > 300) return 140;
+        if (contentLength > 200) return 100;
+        if (contentLength > 100) return 75;
+        if (contentLength > 50) return 60;
+        return 52; // Minimum height for short messages
     }, [virtualItemsList]);
 
-    // Virtualizer with stable size estimation
+    // Stable getItemKey - memoized separately
+    const getItemKey = useCallback((index: number) => {
+        const item = virtualItemsList[index];
+        if (!item) return `item-${index}`;
+        if (item.type === 'typing') return 'typing';
+        if (item.type === 'loader') return 'loader';
+        return item.data.id;
+    }, [virtualItemsList]);
+
+    // Virtualizer with stable configuration
     const rowVirtualizer = useVirtualizer({
         count: virtualItemsList.length,
         getScrollElement: () => parentRef.current,
         estimateSize: getEstimatedSize,
-        overscan: 8, // Increased overscan for smoother experience
+        overscan: 10, // Higher overscan for smoother scrolling
         paddingStart: 0,
         paddingEnd: 0,
-        // Use message ID as key for stable identity
-        getItemKey: useCallback((index: number) => {
-            const item = virtualItemsList[index];
-            if (item.type === 'typing') return 'typing';
-            if (item.type === 'loader') return 'loader';
-            return item.data.id;
-        }, [virtualItemsList]),
+        getItemKey,
     });
 
-    // Cache measured sizes when items are measured
-    useEffect(() => {
-        const items = rowVirtualizer.getVirtualItems();
-        items.forEach(item => {
-            const virtualItem = virtualItemsList[item.index];
-            if (virtualItem?.type === 'message' && item.size > 0) {
-                measuredSizesRef.current.set(virtualItem.data.id, item.size);
+    // Custom measure function that caches sizes
+    const measureElement = useCallback((element: HTMLElement | null) => {
+        if (!element) return;
+
+        const index = Number(element.dataset.index);
+        if (isNaN(index)) return;
+
+        const item = virtualItemsList[index];
+        if (!item) return;
+
+        // For messages, cache the measured size
+        if (item.type === 'message') {
+            const cachedSize = measuredSizesRef.current.get(item.data.id);
+            const currentHeight = element.getBoundingClientRect().height;
+
+            // Only re-measure if size changed significantly (>5px) or not cached
+            if (!cachedSize || Math.abs(cachedSize - currentHeight) > 5) {
+                if (currentHeight > 0) {
+                    measuredSizesRef.current.set(item.data.id, currentHeight);
+                    rowVirtualizer.measureElement(element);
+                }
             }
-        });
-    }, [rowVirtualizer.getVirtualItems(), virtualItemsList]);
+        } else {
+            // For typing/loader, always measure
+            rowVirtualizer.measureElement(element);
+        }
+    }, [virtualItemsList, rowVirtualizer]);
 
     // ------------------------------------------------------------------
     // SCROLL HANDLING (The Tricky Part)
@@ -339,6 +367,7 @@ function MessageListComponent({ conversationId, currentUserId, otherUserAvatarUr
 
                         // Render based on type
                         let content;
+
                         if (item.type === 'loader') {
                             content = (
                                 <div className="flex justify-center py-4">
@@ -381,7 +410,7 @@ function MessageListComponent({ conversationId, currentUserId, otherUserAvatarUr
                         return (
                             <div
                                 key={virtualItem.key}
-                                ref={rowVirtualizer.measureElement}
+                                ref={measureElement}
                                 data-index={virtualItem.index}
                                 style={{
                                     position: 'absolute',

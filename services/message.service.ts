@@ -263,17 +263,21 @@ export async function sendMessage(
 
 /**
  * Update message status (delivered/read)
+ * Also broadcasts to sender for instant UI update when status is 'read'
  */
 export async function updateMessageStatus(
   supabase: SupabaseClient,
   messageId: string,
-  status: MessageStatus
+  status: MessageStatus,
+  conversationId?: string // Optional: pass for broadcast
 ): Promise<ServiceResult<void>> {
   try {
-    const { error } = await supabase
+    const { error, data: updatedMessage } = await supabase
       .from('messages')
       .update({ status })
-      .eq('id', messageId);
+      .eq('id', messageId)
+      .select('id, conversation_id, sender_id')
+      .single();
 
     if (error) {
       return {
@@ -283,6 +287,35 @@ export async function updateMessageStatus(
           message: error.message,
         },
       };
+    }
+
+    // Broadcast read status to sender for instant UI update
+    if (status === 'read' && updatedMessage) {
+      const user = await getCachedUser(supabase);
+      if (user && updatedMessage.sender_id !== user.id) {
+        const convId = conversationId || updatedMessage.conversation_id;
+        
+        // Get reader's profile for the seen avatar
+        const { data: readerProfile } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url, email')
+          .eq('id', user.id)
+          .single();
+
+        // Broadcast to the typing channel
+        await supabase.channel(`typing:${convId}`).send({
+          type: 'broadcast',
+          event: 'messages_read',
+          payload: {
+            conversationId: convId,
+            messageIds: [messageId],
+            readerId: user.id,
+            readerName: readerProfile?.full_name || readerProfile?.email?.split('@')[0] || null,
+            readerAvatarUrl: readerProfile?.avatar_url || null,
+            timestamp: new Date().toISOString(),
+          },
+        });
+      }
     }
 
     return { success: true, data: undefined };
