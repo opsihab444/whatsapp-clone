@@ -533,7 +533,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
   };
 
   return (
-    <div className="bg-[#202c33] px-4 py-2 z-20 min-h-[62px] flex flex-col" role="form" aria-label="Message input">
+    <div className="px-4 py-4 z-20 min-h-[80px] flex flex-col bg-transparent" role="form" aria-label="Message input">
       {/* Image Preview */}
       {imagePreview && (
         <div className="flex items-center gap-2 mb-2 px-2 max-w-4xl mx-auto w-full">
@@ -559,13 +559,13 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
               </div>
             )}
           </div>
-          <span className="text-sm text-[#8696a0]">
+          <span className="text-sm text-muted-foreground">
             {isUploadingImage ? 'Uploading...' : 'Ready to send'}
           </span>
         </div>
       )}
 
-      <div className="flex items-end gap-2 w-full max-w-4xl mx-auto">
+      <div className="flex items-end gap-2 w-full max-w-4xl mx-auto bg-background/80 backdrop-blur-xl p-2 rounded-2xl shadow-lg border border-border/50">
         {/* Hidden file input */}
         <input
           ref={fileInputRef}
@@ -579,16 +579,16 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
         {/* Image Button - Outside input */}
         <button
           onClick={() => fileInputRef.current?.click()}
-          className="p-2 mb-1 text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none"
+          className="p-2 mb-1 text-muted-foreground hover:text-foreground transition-colors outline-none focus:outline-none"
           aria-label="Attach image"
         >
           <ImageIcon className="h-6 w-6" />
         </button>
 
         {/* Input Field Container - WhatsApp Style with icons inside */}
-        <div className="flex-1 flex items-end bg-[#2a3942] rounded-[24px] px-3 py-2 outline-none">
+        <div className="flex-1 flex items-end bg-secondary/50 hover:bg-secondary/80 transition-colors rounded-xl px-3 py-2 outline-none border border-transparent focus-within:border-primary/30 focus-within:bg-background focus-within:ring-2 focus-within:ring-primary/10">
           {/* Emoji Button - Inside input */}
-          <button className="p-1 mr-2 text-[#8696a0] hover:text-[#aebac1] transition-colors outline-none focus:outline-none">
+          <button className="p-1 mr-2 text-muted-foreground hover:text-foreground transition-colors outline-none focus:outline-none">
             <Smile className="h-6 w-6" />
           </button>
 
@@ -604,7 +604,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
             }}
             onKeyDown={handleKeyDown}
             placeholder="Type a message"
-            className="flex-1 min-h-[24px] max-h-[120px] resize-none border-0 bg-transparent px-0 py-1 focus:ring-0 focus:border-0 focus-visible:ring-0 placeholder:text-[#8696a0] leading-6 text-[15px] text-[#d1d7db] outline-none"
+            className="flex-1 min-h-[24px] max-h-[120px] resize-none border-0 bg-transparent px-0 py-1 focus:ring-0 focus:border-0 focus-visible:ring-0 placeholder:text-muted-foreground leading-6 text-[15px] text-foreground outline-none"
             rows={1}
             aria-label="Message input"
           />
@@ -615,7 +615,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
           <button
             onClick={handleSend}
             disabled={isUploadingImage}
-            className="mb-1 p-2.5 bg-[#00a884] hover:bg-[#06cf9c] text-[#111b21] rounded-xl transition-colors outline-none focus:outline-none shadow-sm flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+            className="mb-1 p-2.5 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl transition-all duration-300 shadow-md hover:shadow-lg hover:scale-105 active:scale-95 outline-none focus:outline-none flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
             aria-label="Send message"
           >
             {isUploadingImage ? (
@@ -625,7 +625,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
             )}
           </button>
         ) : (
-          <button className="mb-1 p-2.5 text-[#8696a0] hover:bg-[#2a3942]/50 rounded-xl transition-colors outline-none focus:outline-none flex items-center justify-center">
+          <button className="mb-1 p-2.5 text-muted-foreground hover:bg-muted rounded-xl transition-colors outline-none focus:outline-none flex items-center justify-center">
             <Mic className="h-6 w-6" />
           </button>
         )}

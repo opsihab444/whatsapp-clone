@@ -7,6 +7,12 @@ import { Check, CheckCheck, ChevronDown, Edit, Trash2, Reply, Copy, Info, Loader
 import { useUIStore } from '@/store/ui.store';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import Image from 'next/image';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 // Global cache for blob URLs (for sender's optimistic UI)
 const blobUrlCache = new Map<string, string>();
@@ -20,10 +26,10 @@ const dimensionCache = new Map<string, { width: number; height: number }>();
 // Calculate display dimensions with max size constraint
 function calculateDisplayDimensions(w: number | null | undefined, h: number | null | undefined, maxSize = 300) {
   if (!w || !h) return { width: 200, height: 200 };
-  
+
   let displayW = w;
   let displayH = h;
-  
+
   if (w > maxSize || h > maxSize) {
     if (w > h) {
       displayH = Math.round((h / w) * maxSize);
@@ -33,7 +39,7 @@ function calculateDisplayDimensions(w: number | null | undefined, h: number | nu
       displayH = maxSize;
     }
   }
-  
+
   return { width: displayW, height: displayH };
 }
 
@@ -62,7 +68,7 @@ function ImageMessageContent({
   const cachedBlobUrl = blobUrlCache.get(messageId) || blobUrlCache.get(mediaUrl) || blobUrl;
   const wasAlreadyLoaded = !isBlobUrl && loadedImageCache.has(mediaUrl);
   const cachedDimensions = dimensionCache.get(mediaUrl);
-  
+
   const containerRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(isLatest || wasAlreadyLoaded);
   const [cdnLoaded, setCdnLoaded] = useState(wasAlreadyLoaded);
@@ -85,7 +91,7 @@ function ImageMessageContent({
   // Lazy load with IntersectionObserver (only for non-latest images)
   useEffect(() => {
     if (isLatest || wasAlreadyLoaded || isVisible) return;
-    
+
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
@@ -95,11 +101,11 @@ function ImageMessageContent({
       },
       { rootMargin: '100px' }
     );
-    
+
     if (containerRef.current) {
       observer.observe(containerRef.current);
     }
-    
+
     return () => observer.disconnect();
   }, [isLatest, wasAlreadyLoaded, isVisible]);
 
@@ -130,7 +136,7 @@ function ImageMessageContent({
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
     setCdnLoaded(true);
-    
+
     // Cache dimensions for future use (only if not already saved in DB)
     if (!width && !cachedDimensions) {
       const dims = calculateDisplayDimensions(img.naturalWidth, img.naturalHeight);
@@ -142,9 +148,9 @@ function ImageMessageContent({
 
   // Fixed container with exact dimensions (prevents layout shift)
   return (
-    <div 
+    <div
       ref={containerRef}
-      className="relative overflow-hidden rounded-lg bg-[#3a3b3c]" 
+      className="relative overflow-hidden rounded-2xl bg-muted"
       style={{ width: displayWidth, height: displayHeight }}
     >
       {/* Only load image when visible or is latest */}
@@ -155,7 +161,7 @@ function ImageMessageContent({
             <img
               src={displayUrl}
               alt="Image message"
-              className="rounded-lg object-cover w-full h-full"
+              className="rounded-2xl object-cover w-full h-full"
             />
           )}
 
@@ -165,7 +171,7 @@ function ImageMessageContent({
               src={mediaUrl}
               alt="Image message"
               className={cn(
-                'rounded-lg object-cover w-full h-full transition-opacity duration-200',
+                'rounded-2xl object-cover w-full h-full transition-opacity duration-200',
                 cdnLoaded && !showBlobUrl ? 'opacity-100' : cachedBlobUrl ? 'hidden' : cdnLoaded ? 'opacity-100' : 'opacity-0'
               )}
               onLoad={handleImageLoad}
@@ -178,7 +184,7 @@ function ImageMessageContent({
 
       {/* Sending overlay with large spinner */}
       {status === 'sending' && (
-        <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/50 rounded-2xl flex items-center justify-center">
           <div className="relative">
             <svg className="w-16 h-16 animate-spin" viewBox="0 0 50 50">
               <circle
@@ -227,10 +233,10 @@ interface MessageBubbleProps {
   isLatestImage?: boolean; // Priority load for latest images
 }
 
-function MessageBubbleComponent({ 
-  message, 
-  isOwnMessage, 
-  senderName, 
+function MessageBubbleComponent({
+  message,
+  isOwnMessage,
+  senderName,
   showTail = true,
   showSeenAvatar = false,
   recipientAvatarUrl,
@@ -248,32 +254,10 @@ function MessageBubbleComponent({
     created_at,
   } = message;
 
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [openUpward, setOpenUpward] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-
   // Get UI store actions
   const openEditModal = useUIStore((state) => state.openEditModal);
   const openDeleteModal = useUIStore((state) => state.openDeleteModal);
   const setReplyTo = useUIStore((state) => state.setReplyTo);
-
-  // Close menu when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsMenuOpen(false);
-      }
-    };
-
-    if (isMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isMenuOpen]);
 
   // Render status indicator for own messages - Facebook Messenger style
   // All status indicators shown below message, not inside bubble
@@ -294,7 +278,7 @@ function MessageBubbleComponent({
         </div>
       );
     }
-    
+
     // If this message shows seen avatar, don't show "Sent" text
     if (showSeenAvatar && status === 'read') {
       return (
@@ -308,7 +292,7 @@ function MessageBubbleComponent({
         </div>
       );
     }
-    
+
     // Show "Sent" for sent/delivered messages (only on last message in group)
     if ((status === 'sent' || status === 'delivered') && showSeenAvatar) {
       return (
@@ -317,7 +301,7 @@ function MessageBubbleComponent({
         </div>
       );
     }
-    
+
     return null;
   };
 
@@ -342,25 +326,18 @@ function MessageBubbleComponent({
         senderName: senderName || 'Unknown',
       });
     }
-    setIsMenuOpen(false);
   };
 
   const handleCopy = async () => {
     if (content) {
       await navigator.clipboard.writeText(content);
     }
-    setIsMenuOpen(false);
-  };
-
-  const handleMenuItemClick = (action: () => void) => {
-    action();
-    setIsMenuOpen(false);
   };
 
   return (
     <div
       className={cn(
-        'flex w-full mb-2 group relative px-[4%] md:px-[8%]',
+        'flex w-full mb-2 group relative px-[4%] md:px-[8%] animate-slide-up',
         isOwnMessage ? 'justify-end' : 'justify-start'
       )}
       role="article"
@@ -378,8 +355,9 @@ function MessageBubbleComponent({
           {/* Tail SVG - only show for first message in group */}
           {showTail && (
             <div className={cn(
-              "absolute top-0 w-2 h-3 z-10",
-              isOwnMessage ? "-right-2" : "-left-2"
+              "absolute top-[-1px] w-2 h-3 z-10",
+              isOwnMessage ? "-right-2" : "-left-2",
+              is_deleted && "opacity-70"
             )}>
               {isOwnMessage ? (
                 <svg viewBox="0 0 8 13" height="13" width="8" preserveAspectRatio="none" className="fill-chat-bubble-out block">
@@ -396,20 +374,20 @@ function MessageBubbleComponent({
           {/* Bubble */}
           <div
             className={cn(
-              'rounded-lg shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] relative text-[15px] leading-[22px]',
+              'rounded-[22px] relative text-[15px] leading-[22px]',
               type === 'image' ? 'p-1' : 'px-3 py-2',
               isOwnMessage
-                ? cn('bg-chat-bubble-out text-white', showTail && 'rounded-tr-none')
-                : cn('bg-chat-bubble-in text-[#e9edef]', showTail && 'rounded-tl-none'),
+                ? cn('bg-primary text-primary-foreground', showTail && 'rounded-tr-none')
+                : cn('bg-[hsl(var(--chat-bubble-in))] text-foreground', showTail && 'rounded-tl-none'),
               is_deleted && 'italic opacity-70'
             )}
           >
             {/* Image message */}
             {type === 'image' && media_url && !is_deleted ? (
-              <ImageMessageContent 
+              <ImageMessageContent
                 mediaUrl={media_url}
                 blobUrl={(message as any)._blobUrl}
-                status={status} 
+                status={status}
                 createdAt={created_at}
                 isOwnMessage={isOwnMessage}
                 messageId={id}
@@ -420,7 +398,7 @@ function MessageBubbleComponent({
             ) : (
               <>
                 {/* Text message content with space for timestamp */}
-                <div className="whitespace-pre-wrap break-words break-all pr-[75px] pb-[3px] min-h-[22px]">
+                <div className="whitespace-pre-wrap break-words pr-[75px] pb-[3px] min-h-[22px]">
                   {displayContent}
                 </div>
 
@@ -429,12 +407,12 @@ function MessageBubbleComponent({
                   {is_edited && !is_deleted && (
                     <span className={cn(
                       "text-[11px] mr-1",
-                      isOwnMessage ? "text-[rgba(255,255,255,0.6)]" : "text-[rgba(241,241,242,0.63)]"
+                      isOwnMessage ? "text-primary-foreground/60" : "text-muted-foreground"
                     )}>edited</span>
                   )}
                   <time className={cn(
                     "text-[11px] leading-[15px]",
-                    isOwnMessage ? "text-[rgba(255,255,255,0.6)]" : "text-[rgba(241,241,242,0.63)]"
+                    isOwnMessage ? "text-primary-foreground/60" : "text-muted-foreground"
                   )} dateTime={created_at}>
                     {formatMessageTimeDisplay(created_at)}
                   </time>
@@ -451,104 +429,67 @@ function MessageBubbleComponent({
 
         {/* WhatsApp style dropdown arrow - appears on hover inside bubble */}
         {!is_deleted && (
-          <div 
-            ref={menuRef}
+          <div
             className={cn(
               "absolute top-1 z-20",
               isOwnMessage ? "right-2" : "right-2"
             )}
           >
-            {/* Dropdown arrow button */}
-            <button
-              className={cn(
-                "h-5 w-5 inline-flex items-center justify-center rounded-full transition-all duration-200",
-                isMenuOpen 
-                  ? "opacity-100 bg-black/20" 
-                  : "opacity-0 group-hover/bubble:opacity-100 hover:bg-black/20",
-                isOwnMessage ? "text-white/80" : "text-white/80"
-              )}
-              aria-label="Message options"
-              ref={buttonRef}
-              onClick={(e) => {
-                e.stopPropagation();
-                // Check if there's enough space below
-                if (buttonRef.current) {
-                  const rect = buttonRef.current.getBoundingClientRect();
-                  const spaceBelow = window.innerHeight - rect.bottom;
-                  // Menu height is approximately 200px for own messages, 150px for others
-                  const menuHeight = isOwnMessage ? 220 : 150;
-                  setOpenUpward(spaceBelow < menuHeight);
-                }
-                setIsMenuOpen(!isMenuOpen);
-              }}
-            >
-              <ChevronDown className="h-4 w-4" />
-            </button>
-
-            {/* WhatsApp style dropdown menu */}
-            {isMenuOpen && (
-              <div
-                className={cn(
-                  "absolute min-w-[160px] overflow-hidden rounded-md bg-[#233138] shadow-xl z-50 py-2",
-                  openUpward ? "bottom-full mb-1" : "top-full mt-1",
-                  isOwnMessage ? "right-0" : "left-0"
-                )}
-              >
-                {/* Message Info */}
-                <div
-                  role="menuitem"
-                  className="flex cursor-pointer items-center px-4 py-2.5 text-sm text-[#e9edef] hover:bg-[#182229] transition-colors"
-                  onClick={() => setIsMenuOpen(false)}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className={cn(
+                    "h-5 w-5 inline-flex items-center justify-center rounded-full transition-all duration-200",
+                    "opacity-0 group-hover/bubble:opacity-100 hover:bg-black/20",
+                    "data-[state=open]:opacity-100 data-[state=open]:bg-black/20",
+                    isOwnMessage ? "text-primary-foreground/80" : "text-muted-foreground"
+                  )}
+                  aria-label="Message options"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  <Info className="mr-4 h-4 w-4 text-[#aebac1]" />
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+
+              <DropdownMenuContent align={isOwnMessage ? "end" : "start"}>
+                {/* Message Info */}
+                <DropdownMenuItem onClick={() => { }}>
+                  <Info className="mr-4 h-4 w-4 text-muted-foreground" />
                   Message info
-                </div>
+                </DropdownMenuItem>
 
                 {/* Reply */}
-                <div
-                  role="menuitem"
-                  className="flex cursor-pointer items-center px-4 py-2.5 text-sm text-[#e9edef] hover:bg-[#182229] transition-colors"
-                  onClick={handleReply}
-                >
-                  <Reply className="mr-4 h-4 w-4 text-[#aebac1]" />
+                <DropdownMenuItem onClick={handleReply}>
+                  <Reply className="mr-4 h-4 w-4 text-muted-foreground" />
                   Reply
-                </div>
+                </DropdownMenuItem>
 
                 {/* Copy */}
-                <div
-                  role="menuitem"
-                  className="flex cursor-pointer items-center px-4 py-2.5 text-sm text-[#e9edef] hover:bg-[#182229] transition-colors"
-                  onClick={handleCopy}
-                >
-                  <Copy className="mr-4 h-4 w-4 text-[#aebac1]" />
+                <DropdownMenuItem onClick={handleCopy}>
+                  <Copy className="mr-4 h-4 w-4 text-muted-foreground" />
                   Copy
-                </div>
+                </DropdownMenuItem>
 
                 {/* Edit - only for own messages */}
                 {isOwnMessage && (
-                  <div
-                    role="menuitem"
-                    className="flex cursor-pointer items-center px-4 py-2.5 text-sm text-[#e9edef] hover:bg-[#182229] transition-colors"
-                    onClick={() => handleMenuItemClick(handleEdit)}
-                  >
-                    <Edit className="mr-4 h-4 w-4 text-[#aebac1]" />
+                  <DropdownMenuItem onClick={handleEdit}>
+                    <Edit className="mr-4 h-4 w-4 text-muted-foreground" />
                     Edit
-                  </div>
+                  </DropdownMenuItem>
                 )}
 
                 {/* Delete - only for own messages */}
                 {isOwnMessage && (
-                  <div
-                    role="menuitem"
-                    className="flex cursor-pointer items-center px-4 py-2.5 text-sm text-[#e9edef] hover:bg-[#182229] transition-colors border-t border-[#3b4a54] mt-1 pt-2.5"
-                    onClick={() => handleMenuItemClick(handleDelete)}
+                  <DropdownMenuItem
+                    onClick={handleDelete}
+                    className="text-destructive focus:text-destructive focus:bg-destructive/10"
                   >
-                    <Trash2 className="mr-4 h-4 w-4 text-[#ea0038]" />
-                    <span className="text-[#ea0038]">Delete</span>
-                  </div>
+                    <Trash2 className="mr-4 h-4 w-4 text-destructive" />
+                    Delete
+                  </DropdownMenuItem>
                 )}
-              </div>
-            )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )}
 

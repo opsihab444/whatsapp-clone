@@ -86,39 +86,39 @@ export function EditMessageModal({ messages }: EditMessageModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
         onClick={closeEditModal}
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-md mx-4 bg-[#233138] rounded-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-md bg-popover/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#3b4a54]">
-          <h2 className="text-lg font-medium text-[#e9edef]">Edit message</h2>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border/50">
+          <h2 className="text-lg font-semibold text-foreground">Edit message</h2>
           <button
             onClick={closeEditModal}
-            className="p-1 rounded-full hover:bg-[#3b4a54] transition-colors"
+            className="p-2 rounded-full hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
           >
-            <X className="w-5 h-5 text-[#aebac1]" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="p-6">
+        <div className="p-6 space-y-4">
           {/* Original message preview */}
-          <div className="mb-4">
-            <p className="text-xs text-[#8696a0] mb-2">Original message</p>
-            <div className="px-3 py-2 bg-[#1a262c] rounded-lg text-sm text-[#8696a0] line-clamp-2">
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">Original message</p>
+            <div className="px-4 py-3 bg-muted/50 rounded-xl text-sm text-muted-foreground line-clamp-2 border border-border/50">
               {messageToEdit?.content}
             </div>
           </div>
 
           {/* Edit textarea */}
           <div>
-            <p className="text-xs text-[#8696a0] mb-2">New message</p>
+            <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider">New message</p>
             <textarea
               ref={textareaRef}
               value={content}
@@ -126,10 +126,10 @@ export function EditMessageModal({ messages }: EditMessageModalProps) {
               onKeyDown={handleKeyDown}
               placeholder="Type your message..."
               className={cn(
-                'w-full px-3 py-2 bg-[#2a3942] rounded-lg text-[#e9edef] text-sm',
-                'border border-transparent focus:border-[#00a884] focus:outline-none',
-                'resize-none min-h-[44px] max-h-[200px]',
-                'placeholder:text-[#8696a0]'
+                'w-full px-4 py-3 bg-background rounded-xl text-foreground text-sm',
+                'border border-border focus:border-primary focus:ring-1 focus:ring-primary focus:outline-none transition-all',
+                'resize-none min-h-[80px] max-h-[200px]',
+                'placeholder:text-muted-foreground/50'
               )}
               disabled={isLoading}
               rows={1}
@@ -138,16 +138,19 @@ export function EditMessageModal({ messages }: EditMessageModalProps) {
 
           {/* Error message */}
           {error && (
-            <p className="mt-2 text-sm text-red-400">{error}</p>
+            <p className="text-sm text-destructive font-medium flex items-center gap-2">
+              <span className="w-1 h-1 rounded-full bg-destructive" />
+              {error}
+            </p>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-[#3b4a54]">
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-border/50 bg-muted/30">
           <button
             onClick={closeEditModal}
             disabled={isLoading}
-            className="px-4 py-2 text-sm font-medium text-[#00a884] hover:bg-[#00a884]/10 rounded-lg transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
@@ -155,12 +158,12 @@ export function EditMessageModal({ messages }: EditMessageModalProps) {
             onClick={handleSubmit}
             disabled={isLoading || !content.trim()}
             className={cn(
-              'px-4 py-2 text-sm font-medium rounded-lg transition-colors',
-              'bg-[#00a884] text-white hover:bg-[#00a884]/90',
-              'disabled:opacity-50 disabled:cursor-not-allowed'
+              'px-6 py-2 text-sm font-medium rounded-lg transition-all shadow-sm',
+              'bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow-md hover:shadow-primary/20',
+              'disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none'
             )}
           >
-            {isLoading ? 'Saving...' : 'Save'}
+            {isLoading ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </div>

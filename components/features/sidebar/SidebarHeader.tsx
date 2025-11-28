@@ -73,9 +73,9 @@ export function SidebarHeader({
   };
 
   return (
-    <header className="flex flex-col bg-secondary border-r border-border z-20">
+    <header className="flex flex-col bg-background/80 backdrop-blur-xl border-r border-border/50 z-20 sticky top-0">
       {/* Top Bar: Avatar & Actions */}
-      <div className="flex items-center justify-between px-4 py-3 bg-secondary h-[64px]">
+      <div className="flex items-center justify-between px-4 py-3 h-[64px]">
         <div className="flex items-center gap-3" role="banner">
           <Avatar className="h-11 w-11 cursor-pointer hover:opacity-80 transition-opacity">
             {userAvatar && <AvatarImage src={userAvatar} alt={userName || userEmail} />}
@@ -96,9 +96,9 @@ export function SidebarHeader({
             <span className="sr-only">Status</span>
           </Button>
 
-          <Button 
-            variant="ghost" 
-            size="icon" 
+          <Button
+            variant="ghost"
+            size="icon"
             className="h-10 w-10 rounded-full text-muted-foreground hover:bg-muted/10 hover:text-foreground transition-colors"
             onClick={openCreateGroupModal}
           >
@@ -129,33 +129,32 @@ export function SidebarHeader({
       </div>
 
       {/* Search Bar */}
-      <div className="px-3 pb-2 pt-2 bg-background border-b border-border/50">
+      <div className="px-4 pb-3 pt-1">
         <div className="relative group">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60 group-focus-within:text-primary transition-colors z-10">
-            <Search className="h-[19px] w-[19px]" />
+            <Search className="h-4 w-4" />
           </div>
           <Input
             type="search"
-            placeholder="Search or start new chat"
+            placeholder="Search conversations..."
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="pl-12 bg-secondary border-none focus:ring-0 focus:border-none focus-visible:ring-0 h-[38px] rounded-lg text-[15px] placeholder:text-muted-foreground/60 text-foreground shadow-none outline-none"
+            className="pl-10 bg-secondary/50 hover:bg-secondary/80 focus:bg-background border-transparent focus:border-primary/20 focus:ring-2 focus:ring-primary/20 h-10 rounded-xl text-[14px] placeholder:text-muted-foreground/60 text-foreground shadow-sm transition-all duration-300"
             aria-label="Search conversations or enter email"
           />
         </div>
       </div>
 
       {/* Filter Tabs */}
-      <div className="px-3 py-2.5 flex items-center gap-2 border-b border-border/50 bg-background">
+      <div className="px-4 py-2 flex items-center gap-2 border-b border-border/40 overflow-x-auto scrollbar-hide">
         <Button
           variant="ghost"
           onClick={() => onFilterChange?.('all')}
-          className={`h-8 px-3.5 rounded-full text-[14px] ${
-            activeFilter === 'all'
+          className={`h-8 px-3.5 rounded-full text-[14px] ${activeFilter === 'all'
               ? 'bg-primary/20 hover:bg-primary/30 text-primary font-medium border border-primary/30'
               : 'hover:bg-accent text-muted-foreground hover:text-foreground font-normal'
-          }`}
+            }`}
         >
           All
         </Button>
@@ -174,11 +173,10 @@ export function SidebarHeader({
         <Button
           variant="ghost"
           onClick={() => onFilterChange?.('groups')}
-          className={`h-8 px-3.5 rounded-full text-[14px] ${
-            activeFilter === 'groups'
+          className={`h-8 px-3.5 rounded-full text-[14px] ${activeFilter === 'groups'
               ? 'bg-primary/20 hover:bg-primary/30 text-primary font-medium border border-primary/30'
               : 'hover:bg-accent text-muted-foreground hover:text-foreground font-normal'
-          }`}
+            }`}
         >
           Groups
         </Button>
