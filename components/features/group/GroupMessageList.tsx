@@ -892,7 +892,10 @@ function GroupMessageListComponent({ groupId, currentUserId, members }: GroupMes
                           ) : (
                             <>
                               {/* Message content with space for timestamp */}
-                              <div className="whitespace-pre-wrap break-words break-all pr-[75px] pb-[3px] min-h-[22px]">
+                              <div
+                                className="whitespace-pre-wrap break-words pr-[75px] pb-[3px] min-h-[22px]"
+                                style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                              >
                                 {message.is_deleted ? 'This message was deleted' : message.content}
                               </div>
 

@@ -3,8 +3,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import { getGroups } from '@/services/group.service';
+import { getFavorites } from '@/services/chat.service';
 import { GroupConversation } from '@/types';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 
 /**
  * Hook to fetch and manage group list
@@ -12,6 +13,19 @@ import { useMemo } from 'react';
  */
 export function useGroups(searchQuery: string = '') {
   const supabase = useMemo(() => createClient(), []);
+  const [favorites, setFavorites] = useState<string[]>([]);
+
+  // Load favorites on mount and listen for updates
+  useEffect(() => {
+    setFavorites(getFavorites());
+
+    const handleFavoritesUpdate = () => {
+      setFavorites(getFavorites());
+    };
+
+    window.addEventListener('favorites-updated', handleFavoritesUpdate);
+    return () => window.removeEventListener('favorites-updated', handleFavoritesUpdate);
+  }, []);
 
   const query = useQuery({
     queryKey: ['groups'],
@@ -38,17 +52,24 @@ export function useGroups(searchQuery: string = '') {
     refetchOnReconnect: true,
   });
 
-  // Filter groups based on search query
+  // Filter groups based on search query and merge favorites
   const filteredGroups = useMemo(() => {
     if (!query.data) return [];
-    if (!searchQuery.trim()) return query.data;
-    
+
+    // Merge favorite status
+    const groupsWithFavorites = query.data.map(group => ({
+      ...group,
+      is_favorite: favorites.includes(group.id)
+    }));
+
+    if (!searchQuery.trim()) return groupsWithFavorites;
+
     const lowerQuery = searchQuery.toLowerCase();
-    return query.data.filter((g) => 
+    return groupsWithFavorites.filter((g) =>
       g.group.name.toLowerCase().includes(lowerQuery) ||
       g.group.description?.toLowerCase().includes(lowerQuery)
     );
-  }, [query.data, searchQuery]);
+  }, [query.data, searchQuery, favorites]);
 
   return {
     ...query,

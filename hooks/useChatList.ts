@@ -2,9 +2,9 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
-import { getConversations, filterConversations } from '@/services/chat.service';
+import { getConversations, filterConversations, getFavorites } from '@/services/chat.service';
 import { Conversation } from '@/types';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 
 /**
  * Hook to fetch and manage conversation list
@@ -18,6 +18,19 @@ import { useMemo } from 'react';
  */
 export function useChatList(searchQuery: string = '') {
   const supabase = useMemo(() => createClient(), []);
+  const [favorites, setFavorites] = useState<string[]>([]);
+
+  // Load favorites on mount and listen for updates
+  useEffect(() => {
+    setFavorites(getFavorites());
+
+    const handleFavoritesUpdate = () => {
+      setFavorites(getFavorites());
+    };
+
+    window.addEventListener('favorites-updated', handleFavoritesUpdate);
+    return () => window.removeEventListener('favorites-updated', handleFavoritesUpdate);
+  }, []);
 
   const query = useQuery({
     queryKey: ['conversations'],
@@ -45,11 +58,18 @@ export function useChatList(searchQuery: string = '') {
     refetchOnReconnect: true,
   });
 
-  // Filter conversations based on search query
+  // Filter conversations based on search query and merge favorites
   const filteredConversations = useMemo(() => {
     if (!query.data) return [];
-    return filterConversations(query.data, searchQuery);
-  }, [query.data, searchQuery]);
+
+    // Merge favorite status
+    const conversationsWithFavorites = query.data.map(conv => ({
+      ...conv,
+      is_favorite: favorites.includes(conv.id)
+    }));
+
+    return filterConversations(conversationsWithFavorites, searchQuery);
+  }, [query.data, searchQuery, favorites]);
 
   return {
     ...query,

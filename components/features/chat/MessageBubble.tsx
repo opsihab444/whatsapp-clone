@@ -436,7 +436,10 @@ function MessageBubbleComponent({
             ) : (
               <>
                 {/* Text message content with space for timestamp */}
-                <div className="whitespace-pre-wrap break-words pr-[75px] pb-[3px] min-h-[22px]">
+                <div
+                  className="whitespace-pre-wrap break-words pr-[75px] pb-[3px] min-h-[22px]"
+                  style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                >
                   {displayContent}
                 </div>
 

@@ -21,6 +21,7 @@ export interface Conversation {
   created_at: string;
   other_user: Profile;
   unread_count: number;
+  is_favorite?: boolean;
 }
 
 export interface Message {
@@ -78,6 +79,7 @@ export interface GroupConversation {
   last_message_sender_id: string | null;
   last_message_sender_name: string | null;
   unread_count: number;
+  is_favorite?: boolean;
 }
 
 export interface GroupMessage extends Omit<Message, 'conversation_id'> {
