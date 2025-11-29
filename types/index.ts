@@ -46,6 +46,7 @@ export interface Message {
     sender_id: string;
     sender?: Profile;
     type: MessageType;
+    media_url?: string | null;
   } | null;
 }
 
@@ -98,6 +99,7 @@ export interface GroupMessage extends Omit<Message, 'conversation_id'> {
     sender_id: string;
     sender?: Profile;
     type: MessageType;
+    media_url?: string | null;
   } | null;
 }
 

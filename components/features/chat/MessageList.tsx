@@ -404,6 +404,7 @@ function MessageListComponent({ conversationId, currentUserId, currentUserName, 
                                         recipientName={otherUserName}
                                         isLatestImage={isLatestImage}
                                         currentUserName={currentUserName}
+                                        currentUserId={currentUserId}
                                     />
                                 </div>
                             );

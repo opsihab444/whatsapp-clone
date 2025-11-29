@@ -75,6 +75,7 @@ export async function getMessages(
           content,
           sender_id,
           type,
+          media_url,
           sender:profiles!messages_sender_id_fkey(
             id,
             full_name,
@@ -89,6 +90,7 @@ export async function getMessages(
           content: r.content,
           sender_id: r.sender_id,
           type: r.type,
+          media_url: r.media_url,
           sender: Array.isArray(r.sender) ? r.sender[0] : r.sender,
         }]));
 

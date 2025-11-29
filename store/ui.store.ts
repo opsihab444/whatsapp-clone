@@ -4,6 +4,8 @@ interface ReplyToMessage {
   id: string;
   content: string;
   senderName: string;
+  senderId: string; // Original message sender's ID
+  mediaUrl?: string | null; // For image replies
 }
 
 // Typing user info with avatar support
