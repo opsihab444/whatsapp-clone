@@ -6,7 +6,10 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { cn, formatConversationTime, truncate } from '@/lib/utils';
 import { useUIStore } from '@/store/ui.store';
-import { toggleFavorite } from '@/services/chat.service';
+import { addToFavorites, removeFromFavorites } from '@/services/chat.service';
+import { createClient } from '@/lib/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { showSuccessToast, showErrorToast } from '@/lib/toast.utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -172,9 +175,42 @@ function GroupRowComponent({
     console.log('Mark as unread', group.id);
   };
 
-  const handleFavorite = (e: React.MouseEvent) => {
+  const handleFavorite = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    toggleFavorite(group.id);
+    const supabase = createClient();
+    const queryClient = useQueryClient();
+    const isFavorite = group.is_favorite || false;
+    
+    // Optimistic update
+    queryClient.setQueryData(['favorite-conversations'], (old: string[] | undefined) => {
+      if (!old) return isFavorite ? [] : [group.id];
+      if (isFavorite) {
+        return old.filter(id => id !== group.id);
+      } else {
+        return [...old, group.id];
+      }
+    });
+
+    // Database update
+    if (isFavorite) {
+      const result = await removeFromFavorites(supabase, group.id);
+      if (result.success) {
+        showSuccessToast('Removed from favorites');
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['favorite-conversations'] });
+        showErrorToast(result.error.message);
+      }
+    } else {
+      const result = await addToFavorites(supabase, group.id);
+      if (result.success) {
+        showSuccessToast('Added to favorites');
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['favorite-conversations'] });
+        showErrorToast(result.error.message);
+      }
+    }
+    
+    window.dispatchEvent(new Event('favorites-updated'));
   };
 
   const handleLeave = (e: React.MouseEvent) => {

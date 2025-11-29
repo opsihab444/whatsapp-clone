@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn, formatConversationTime, truncate } from '@/lib/utils';
 import { useUIStore } from '@/store/ui.store';
-import { toggleFavorite, deleteConversation, blockUser } from '@/services/chat.service';
+import { deleteConversation, blockUser, pinConversation, unpinConversation, addToFavorites, removeFromFavorites } from '@/services/chat.service';
 import { createClient } from '@/lib/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
@@ -25,6 +25,7 @@ import {
   Archive,
   BellOff,
   Pin,
+  PinOff,
   Tag,
   MessageSquare,
   Heart,
@@ -89,9 +90,13 @@ function ChatRowComponent({
   const [showBlockConfirm, setShowBlockConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isBlocking, setIsBlocking] = useState(false);
+  const [isPinning, setIsPinning] = useState(false);
   const supabase = createClient();
   const queryClient = useQueryClient();
   const router = useRouter();
+  
+  // Get pinned status from conversation prop (comes from useChatList)
+  const pinned = conversation.is_pinned || false;
 
   // Generate initials for avatar fallback
   const initials = other_user.full_name
@@ -157,9 +162,46 @@ function ChatRowComponent({
     console.log('Mute chat', conversation.id);
   };
 
-  const handlePin = (e: React.MouseEvent) => {
+  const handlePin = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log('Pin chat', conversation.id);
+    if (isPinning) return;
+    
+    setIsPinning(true);
+    const newPinnedState = !pinned;
+    
+    // Optimistic update - instantly update pinned-conversations cache
+    queryClient.setQueryData(['pinned-conversations'], (old: string[] | undefined) => {
+      if (!old) return newPinnedState ? [conversation.id] : [];
+      if (newPinnedState) {
+        if (old.length >= 3) return old; // Max 3
+        return [...old, conversation.id];
+      } else {
+        return old.filter(id => id !== conversation.id);
+      }
+    });
+
+    // Database update
+    if (pinned) {
+      const result = await unpinConversation(supabase, conversation.id);
+      if (result.success) {
+        showSuccessToast('Chat unpinned');
+      } else {
+        // Revert on error
+        queryClient.invalidateQueries({ queryKey: ['pinned-conversations'] });
+        showErrorToast(result.error.message);
+      }
+    } else {
+      const result = await pinConversation(supabase, conversation.id);
+      if (result.success) {
+        showSuccessToast('Chat pinned');
+      } else {
+        // Revert on error
+        queryClient.invalidateQueries({ queryKey: ['pinned-conversations'] });
+        showErrorToast(result.error.message);
+      }
+    }
+    
+    setIsPinning(false);
   };
 
   const handleLabel = (e: React.MouseEvent) => {
@@ -172,9 +214,41 @@ function ChatRowComponent({
     console.log('Mark as unread', conversation.id);
   };
 
-  const handleFavorite = (e: React.MouseEvent) => {
+  const handleFavorite = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    toggleFavorite(conversation.id);
+    
+    const isFavorite = conversation.is_favorite || false;
+    
+    // Optimistic update
+    queryClient.setQueryData(['favorite-conversations'], (old: string[] | undefined) => {
+      if (!old) return isFavorite ? [] : [conversation.id];
+      if (isFavorite) {
+        return old.filter(id => id !== conversation.id);
+      } else {
+        return [...old, conversation.id];
+      }
+    });
+
+    // Database update
+    if (isFavorite) {
+      const result = await removeFromFavorites(supabase, conversation.id);
+      if (result.success) {
+        showSuccessToast('Removed from favorites');
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['favorite-conversations'] });
+        showErrorToast(result.error.message);
+      }
+    } else {
+      const result = await addToFavorites(supabase, conversation.id);
+      if (result.success) {
+        showSuccessToast('Added to favorites');
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['favorite-conversations'] });
+        showErrorToast(result.error.message);
+      }
+    }
+    
+    window.dispatchEvent(new Event('favorites-updated'));
   };
 
   const handleDelete = (e: React.MouseEvent) => {
@@ -267,6 +341,7 @@ function ChatRowComponent({
       <div className="flex-1 min-w-0 flex flex-col justify-center h-full pr-2">
         <div className="flex items-center justify-between mb-1">
           <p className="text-[18px] text-foreground truncate leading-6 font-medium flex items-center gap-1">
+            {pinned && <Pin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
             {highlightText(displayName)}
           </p>
           {timestamp && (
@@ -298,8 +373,12 @@ function ChatRowComponent({
                   <span>Mute notifications</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handlePin}>
-                  <Pin className="mr-2 h-4 w-4 text-muted-foreground" />
-                  <span>Pin chat</span>
+                  {pinned ? (
+                    <PinOff className="mr-2 h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Pin className="mr-2 h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span>{pinned ? 'Unpin chat' : 'Pin chat'}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleLabel}>
                   <Tag className="mr-2 h-4 w-4 text-muted-foreground" />

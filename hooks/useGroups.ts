@@ -1,11 +1,11 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import { getGroups } from '@/services/group.service';
-import { getFavorites } from '@/services/chat.service';
+import { getFavoriteConversations } from '@/services/chat.service';
 import { GroupConversation } from '@/types';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useEffect } from 'react';
 
 /**
  * Hook to fetch and manage group list
@@ -13,19 +13,33 @@ import { useMemo, useState, useEffect } from 'react';
  */
 export function useGroups(searchQuery: string = '') {
   const supabase = useMemo(() => createClient(), []);
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const queryClient = useQueryClient();
 
-  // Load favorites on mount and listen for updates
+  // Fetch favorites from database
+  const favoritesQuery = useQuery({
+    queryKey: ['favorite-conversations'],
+    queryFn: async () => {
+      const result = await getFavoriteConversations(supabase);
+      if (!result.success) {
+        return [];
+      }
+      return result.data;
+    },
+    staleTime: 0,
+    gcTime: 1000 * 60 * 5,
+  });
+
+  const favorites = useMemo(() => favoritesQuery.data || [], [favoritesQuery.data]);
+
+  // Listen for updates
   useEffect(() => {
-    setFavorites(getFavorites());
-
     const handleFavoritesUpdate = () => {
-      setFavorites(getFavorites());
+      queryClient.invalidateQueries({ queryKey: ['favorite-conversations'] });
     };
 
     window.addEventListener('favorites-updated', handleFavoritesUpdate);
     return () => window.removeEventListener('favorites-updated', handleFavoritesUpdate);
-  }, []);
+  }, [queryClient]);
 
   const query = useQuery({
     queryKey: ['groups'],

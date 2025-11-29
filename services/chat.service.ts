@@ -413,56 +413,313 @@ export async function getOrCreateConversation(
 }
 
 /**
- * Toggle favorite status for a conversation or group
- * Uses localStorage for persistence since backend support is pending
+ * Add conversation to favorites (database)
  */
-export function toggleFavorite(id: string): boolean {
+export async function addToFavorites(
+    supabase: SupabaseClient,
+    conversationId: string
+): Promise<ServiceResult<void>> {
     try {
-        const favorites = getFavorites();
-        const isFavorite = favorites.includes(id);
+        const user = await getCachedUser(supabase);
 
-        let newFavorites: string[];
-        if (isFavorite) {
-            newFavorites = favorites.filter(favId => favId !== id);
-        } else {
-            newFavorites = [...favorites, id];
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
         }
 
-        localStorage.setItem('whatsapp_favorites', JSON.stringify(newFavorites));
+        const { error } = await supabase
+            .from('favorite_conversations')
+            .insert({
+                user_id: user.id,
+                conversation_id: conversationId,
+            });
 
-        // Dispatch a custom event so components can react immediately
-        window.dispatchEvent(new Event('favorites-updated'));
+        if (error) {
+            if (error.code === '23505') {
+                return { success: true, data: undefined }; // Already favorite
+            }
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
 
-        return !isFavorite;
+        return { success: true, data: undefined };
     } catch (error) {
-        console.error('Error toggling favorite:', error);
-        return false;
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
     }
 }
 
 /**
- * Get all favorite IDs from localStorage
+ * Remove conversation from favorites (database)
  */
-export function getFavorites(): string[] {
+export async function removeFromFavorites(
+    supabase: SupabaseClient,
+    conversationId: string
+): Promise<ServiceResult<void>> {
     try {
-        if (typeof window === 'undefined') return [];
+        const user = await getCachedUser(supabase);
 
-        const stored = localStorage.getItem('whatsapp_favorites');
-        if (!stored) return [];
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
 
-        return JSON.parse(stored);
+        const { error } = await supabase
+            .from('favorite_conversations')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('conversation_id', conversationId);
+
+        if (error) {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: undefined };
     } catch (error) {
-        console.error('Error getting favorites:', error);
-        return [];
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
     }
 }
 
 /**
- * Check if a specific ID is a favorite
+ * Get all favorite conversation IDs (database)
  */
-export function isFavorite(id: string): boolean {
-    const favorites = getFavorites();
-    return favorites.includes(id);
+export async function getFavoriteConversations(
+    supabase: SupabaseClient
+): Promise<ServiceResult<string[]>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        const { data, error } = await supabase
+            .from('favorite_conversations')
+            .select('conversation_id')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: data?.map(f => f.conversation_id) || [] };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Pin a conversation (database)
+ */
+export async function pinConversation(
+    supabase: SupabaseClient,
+    conversationId: string
+): Promise<ServiceResult<void>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        // Check current pinned count (max 3)
+        const { count } = await supabase
+            .from('pinned_conversations')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', user.id);
+
+        if (count && count >= 3) {
+            return {
+                success: false,
+                error: {
+                    type: 'VALIDATION_ERROR',
+                    message: 'Maximum 3 chats can be pinned',
+                },
+            };
+        }
+
+        const { error } = await supabase
+            .from('pinned_conversations')
+            .insert({
+                user_id: user.id,
+                conversation_id: conversationId,
+            });
+
+        if (error) {
+            if (error.code === '23505') {
+                return { success: true, data: undefined }; // Already pinned
+            }
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: undefined };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Unpin a conversation (database)
+ */
+export async function unpinConversation(
+    supabase: SupabaseClient,
+    conversationId: string
+): Promise<ServiceResult<void>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        const { error } = await supabase
+            .from('pinned_conversations')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('conversation_id', conversationId);
+
+        if (error) {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: undefined };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Get all pinned conversation IDs (database)
+ */
+export async function getPinnedConversations(
+    supabase: SupabaseClient
+): Promise<ServiceResult<string[]>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        const { data, error } = await supabase
+            .from('pinned_conversations')
+            .select('conversation_id')
+            .eq('user_id', user.id)
+            .order('pinned_at', { ascending: true });
+
+        if (error) {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: data?.map(p => p.conversation_id) || [] };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
 }
 
 /**
