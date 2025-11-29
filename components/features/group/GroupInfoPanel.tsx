@@ -1,20 +1,22 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import { X, Users, Shield, UserMinus, LogOut, Crown, MoreVertical, UserPlus, Search, Loader2, Image as ImageIcon, ChevronRight, Pencil, Camera, Check } from 'lucide-react';
+import { X, Users, Shield, UserMinus, LogOut, Crown, MoreVertical, UserPlus, Loader2, Image as ImageIcon, ChevronRight, Pencil, Camera, Check } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { ImageCropModal } from '@/components/ui/image-crop-modal';
+import { AddMemberModal } from '@/components/features/group/AddMemberModal';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { GroupMember, Profile } from '@/types';
+import { GroupMember } from '@/types';
 import { createClient } from '@/lib/supabase/client';
-import { removeGroupMember, addGroupMember, searchUsersForGroup, leaveGroup, updateGroupMemberRole, updateGroup } from '@/services/group.service';
+import { removeGroupMember, leaveGroup, updateGroupMemberRole, updateGroup } from '@/services/group.service';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { showErrorToast, showSuccessToast } from '@/lib/toast.utils';
@@ -42,10 +44,7 @@ export function GroupInfoPanel({
   currentUserId,
   createdBy,
 }: GroupInfoPanelProps) {
-  const [isAddingMember, setIsAddingMember] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Profile[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
   const [isUpdatingRole, setIsUpdatingRole] = useState(false);
 
@@ -53,7 +52,8 @@ export function GroupInfoPanel({
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(groupName);
   const [isSavingName, setIsSavingName] = useState(false);
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const queryClient = useQueryClient();
@@ -69,44 +69,13 @@ export function GroupInfoPanel({
     return email.slice(0, 2).toUpperCase();
   };
 
-  const handleSearch = async (query: string) => {
-    setSearchQuery(query);
-    if (!query.trim()) {
-      setSearchResults([]);
-      return;
-    }
-
-    setIsSearching(true);
-    const supabase = createClient();
-    const result = await searchUsersForGroup(supabase, query.trim(), groupId);
-    if (result.success) {
-      setSearchResults(result.data);
-    }
-    setIsSearching(false);
-  };
-
-  const handleAddMember = async (userId: string) => {
-    const supabase = createClient();
-    const result = await addGroupMember(supabase, groupId, userId);
-    if (result.success) {
-      queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
-      setSearchQuery('');
-      setSearchResults([]);
-      setIsAddingMember(false);
-      showSuccessToast('Member added successfully');
-    } else {
-      // Suppress duplicate key error (user already in group)
-      if (!result.error.message.includes('duplicate key value') && !result.error.message.includes('unique constraint')) {
-        showErrorToast(result.error.message);
-      }
-    }
-  };
-
   const handleRemoveMember = async (userId: string) => {
     const supabase = createClient();
     const result = await removeGroupMember(supabase, groupId, userId);
     if (result.success) {
       await queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
+      // Invalidate messages to show system message
+      await queryClient.invalidateQueries({ queryKey: ['group-messages', groupId] });
       showSuccessToast('Member removed');
     } else {
       showErrorToast(result.error.message);
@@ -121,6 +90,8 @@ export function GroupInfoPanel({
 
     if (result.success) {
       await queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
+      // Invalidate messages to show system message (backup for realtime)
+      await queryClient.invalidateQueries({ queryKey: ['group-messages', groupId] });
       showSuccessToast('Member promoted to admin');
     } else {
       showErrorToast(result.error.message);
@@ -136,6 +107,8 @@ export function GroupInfoPanel({
 
     if (result.success) {
       await queryClient.invalidateQueries({ queryKey: ['group-members', groupId] });
+      // Invalidate messages to show system message (backup for realtime)
+      await queryClient.invalidateQueries({ queryKey: ['group-messages', groupId] });
       showSuccessToast('Admin dismissed');
     } else {
       showErrorToast(result.error.message);
@@ -164,7 +137,7 @@ export function GroupInfoPanel({
     setIsSavingName(false);
   };
 
-  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -178,10 +151,23 @@ export function GroupInfoPanel({
       return;
     }
 
-    setIsUploadingAvatar(true);
+    setSelectedImageFile(file);
+    setShowCropModal(true);
+    
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleCropComplete = async (croppedBlob: Blob) => {
+    // Close modal immediately and show "changing" notification
+    setShowCropModal(false);
+    setSelectedImageFile(null);
+    showSuccessToast('Changing group avatar...');
+    
     try {
       const formData = new FormData();
-      formData.append('file', file);
+      formData.append('file', new File([croppedBlob], 'avatar.jpg', { type: 'image/jpeg' }));
 
       const response = await fetch('/api/upload', {
         method: 'POST',
@@ -199,7 +185,7 @@ export function GroupInfoPanel({
 
         if (result.success) {
           await queryClient.invalidateQueries({ queryKey: ['groups'] });
-          showSuccessToast('Group icon updated');
+          showSuccessToast('Group avatar changed');
         } else {
           showErrorToast(result.error.message);
         }
@@ -207,11 +193,6 @@ export function GroupInfoPanel({
     } catch (error) {
       console.error('Avatar upload error:', error);
       showErrorToast('Failed to upload image');
-    } finally {
-      setIsUploadingAvatar(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
     }
   };
 
@@ -219,15 +200,13 @@ export function GroupInfoPanel({
     <>
       {/* Backdrop */}
       <div
-        className={`absolute inset-0 bg-black/20 z-40 transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          }`}
+        className={`absolute inset-0 bg-black/20 z-40 transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
         onClick={onClose}
       />
 
       {/* Panel */}
       <div
-        className={`absolute top-0 right-0 h-full w-[340px] bg-background border-l border-border/50 flex flex-col z-50 transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'
-          }`}
+        className={`absolute top-0 right-0 h-full w-[340px] bg-background border-l border-border/50 flex flex-col z-50 transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
       >
         {/* Header */}
         <div className="flex items-center gap-6 px-4 py-3 bg-background border-b border-border/50 min-h-[70px]">
@@ -243,11 +222,13 @@ export function GroupInfoPanel({
         </div>
 
         <ScrollArea className="flex-1">
-          {/* Group Avatar & Name */}
+          {/* Profile Section - Same as ContactInfoPanel */}
           <div className="flex flex-col items-center py-10 bg-background">
             <div className="relative group">
               <Avatar className="h-[200px] w-[200px] mb-4">
-                {groupAvatar && <AvatarImage src={groupAvatar} />}
+                {groupAvatar ? (
+                  <AvatarImage src={groupAvatar} className="object-cover" />
+                ) : null}
                 <AvatarFallback className="bg-muted text-muted-foreground text-6xl">
                   <Users className="h-24 w-24" />
                 </AvatarFallback>
@@ -256,85 +237,77 @@ export function GroupInfoPanel({
               {isAdmin && (
                 <>
                   <div
-                    className="absolute inset-0 bg-black/40 rounded-full flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer mb-4"
+                    className="absolute inset-0 bg-black/40 rounded-full flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 cursor-pointer mb-4"
                     onClick={() => fileInputRef.current?.click()}
                   >
                     <Camera className="h-8 w-8 text-white mb-2" />
-                    <span className="text-white text-sm font-medium">CHANGE <br /> PHOTO</span>
+                    <span className="text-white text-sm font-medium">CHANGE<br />PHOTO</span>
                   </div>
                   <input
                     ref={fileInputRef}
                     type="file"
                     accept="image/*"
                     className="hidden"
-                    onChange={handleAvatarUpload}
+                    onChange={handleFileSelect}
                   />
-                  {isUploadingAvatar && (
-                    <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center mb-4">
-                      <Loader2 className="h-8 w-8 text-white animate-spin" />
-                    </div>
-                  )}
                 </>
               )}
             </div>
 
-            <div className="flex items-center justify-center gap-2 w-full px-8">
-              {isEditingName ? (
-                <div className="flex items-center gap-2 w-full">
-                  <Input
-                    value={editedName}
-                    onChange={(e) => setEditedName(e.target.value)}
-                    className="h-8 text-[22px] font-normal text-center"
-                    autoFocus
-                  />
+            {isEditingName ? (
+              <div className="flex items-center gap-2 px-8 w-full">
+                <Input
+                  value={editedName}
+                  onChange={(e) => setEditedName(e.target.value)}
+                  className="h-8 text-[22px] font-normal text-center"
+                  autoFocus
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
+                  onClick={handleNameSave}
+                  disabled={isSavingName}
+                >
+                  {isSavingName ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-5 w-5" />}
+                </Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 group relative">
+                <h3 className="text-[22px] text-foreground font-normal mt-2">
+                  {groupName}
+                </h3>
+                {isAdmin && (
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-8 w-8 text-green-500 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20"
-                    onClick={handleNameSave}
-                    disabled={isSavingName}
+                    className="h-8 w-8 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity absolute -right-10 top-2"
+                    onClick={() => {
+                      setEditedName(groupName);
+                      setIsEditingName(true);
+                    }}
                   >
-                    {isSavingName ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-5 w-5" />}
+                    <Pencil className="h-4 w-4" />
                   </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 group relative">
-                  <h3 className="text-[22px] text-foreground font-normal mt-2 text-center break-all">
-                    {groupName}
-                  </h3>
-                  {isAdmin && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity absolute -right-10 top-2"
-                      onClick={() => {
-                        setEditedName(groupName);
-                        setIsEditingName(true);
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <p className="text-[14px] text-muted-foreground mt-1">Group · {members.length} members</p>
+                )}
+              </div>
+            )}
+            <p className="text-[14px] text-muted-foreground mt-1">
+              Group · {members.length} members
+            </p>
           </div>
 
           {/* Description */}
           {groupDescription && (
-            <div className="px-6 py-4 border-t border-border/50">
+            <div className="px-8 py-4 border-t border-border/50">
               <p className="text-xs text-muted-foreground mb-1">Description</p>
               <p className="text-sm text-foreground">{groupDescription}</p>
             </div>
           )}
 
-          {/* Media Section */}
+          {/* Media Section - Same as ContactInfoPanel */}
           <div className="border-t border-border/50">
-            <div
-              className="flex items-center justify-between px-8 py-4 hover:bg-secondary/50 cursor-pointer transition-colors"
-            >
+            <div className="flex items-center justify-between px-8 py-4 hover:bg-secondary/50 cursor-pointer transition-colors">
               <div className="flex items-center gap-6">
                 <ImageIcon className="h-5 w-5 text-muted-foreground" />
                 <span className="text-foreground text-[15px]">Media, links and docs</span>
@@ -348,13 +321,13 @@ export function GroupInfoPanel({
 
           {/* Members Section */}
           <div className="py-4 border-t border-border/50">
-            <div className="flex items-center justify-between px-6 mb-3">
+            <div className="flex items-center justify-between px-8 mb-3">
               <p className="text-sm text-muted-foreground">{members.length} members</p>
               {isAdmin && (
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setIsAddingMember(!isAddingMember)}
+                  onClick={() => setShowAddMemberModal(true)}
                   className="text-primary hover:text-primary"
                 >
                   <UserPlus className="h-4 w-4 mr-1" />
@@ -362,47 +335,6 @@ export function GroupInfoPanel({
                 </Button>
               )}
             </div>
-
-            {/* Add Member Search */}
-            {isAddingMember && (
-              <div className="px-4 pb-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search by name or email"
-                    value={searchQuery}
-                    onChange={(e) => handleSearch(e.target.value)}
-                    className="pl-9"
-                  />
-                </div>
-                {isSearching ? (
-                  <div className="mt-2 flex justify-center py-4">
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  </div>
-                ) : searchResults.length > 0 && (
-                  <div className="mt-2 border rounded-lg overflow-hidden">
-                    {searchResults.map((user) => (
-                      <button
-                        key={user.id}
-                        onClick={() => handleAddMember(user.id)}
-                        className="w-full flex items-center gap-3 px-3 py-2 hover:bg-secondary transition-colors"
-                      >
-                        <Avatar className="h-8 w-8">
-                          {user.avatar_url && <AvatarImage src={user.avatar_url} />}
-                          <AvatarFallback className="text-xs">
-                            {getInitials(user.full_name, user.email)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="text-left">
-                          <p className="text-sm font-medium">{user.full_name || user.email}</p>
-                          <p className="text-xs text-muted-foreground">{user.email}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Member List */}
             <div className="space-y-1">
@@ -422,7 +354,7 @@ export function GroupInfoPanel({
                   return (
                     <div
                       key={member.user_id}
-                      className="flex items-center gap-3 px-6 py-3 hover:bg-secondary/50 transition-colors"
+                      className="flex items-center gap-3 px-8 py-3 hover:bg-secondary/50 transition-colors"
                     >
                       <Avatar className="h-10 w-10">
                         {member.profile?.avatar_url && <AvatarImage src={member.profile.avatar_url} />}
@@ -490,7 +422,7 @@ export function GroupInfoPanel({
           </div>
 
           {/* Leave Group */}
-          <div className="px-6 py-4 border-t border-border/50">
+          <div className="px-8 py-4 border-t border-border/50">
             <button
               onClick={async () => {
                 if (!currentUserId || isLeaving) return;
@@ -517,6 +449,27 @@ export function GroupInfoPanel({
           </div>
         </ScrollArea>
       </div>
+
+      {/* Image Crop Modal */}
+      <ImageCropModal
+        isOpen={showCropModal}
+        onClose={() => {
+          setShowCropModal(false);
+          setSelectedImageFile(null);
+        }}
+        imageFile={selectedImageFile}
+        onCropComplete={handleCropComplete}
+        title="Drag the image to adjust"
+      />
+
+      {/* Add Member Modal */}
+      <AddMemberModal
+        isOpen={showAddMemberModal}
+        onClose={() => setShowAddMemberModal(false)}
+        groupId={groupId}
+        existingMemberIds={members.map((m) => m.user_id)}
+        currentUserId={currentUserId}
+      />
     </>
   );
 }

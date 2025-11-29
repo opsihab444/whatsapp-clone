@@ -551,7 +551,9 @@ export function useRealtime() {
               }
 
               // If this is our own message and no temp message found, skip adding
-              if (isOwnMessage) {
+              // BUT always add system messages (admin actions, member changes, etc.)
+              const isSystemMessage = newMessage.type === 'system';
+              if (isOwnMessage && !isSystemMessage) {
                 return old;
               }
 
@@ -674,6 +676,43 @@ export function useRealtime() {
           }
         }
       )
+      // Listen for group updates (name, avatar, description changes)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'groups',
+        },
+        async (payload) => {
+          const updatedGroup = payload.new as { id: string; name: string; avatar_url: string | null; description: string | null };
+          console.log('[Realtime] Group UPDATE received:', updatedGroup.id);
+
+          // Update group info in cache for all users
+          queryClient.setQueryData<GroupConversation[]>(['groups'], (old) => {
+            if (!old) return old;
+            return old.map((groupConv) =>
+              groupConv.group.id === updatedGroup.id
+                ? {
+                    ...groupConv,
+                    group: {
+                      ...groupConv.group,
+                      name: updatedGroup.name,
+                      avatar_url: updatedGroup.avatar_url,
+                      description: updatedGroup.description,
+                    },
+                  }
+                : groupConv
+            );
+          });
+
+          // Also invalidate group-members query if viewing this group (to refresh any cached group info)
+          const currentActiveGroupId = activeGroupIdRef.current;
+          if (currentActiveGroupId === updatedGroup.id) {
+            queryClient.invalidateQueries({ queryKey: ['group-members', updatedGroup.id] });
+          }
+        }
+      )
       // Listen for group member additions (when you are added to a group)
       .on(
         'postgres_changes',
@@ -701,6 +740,26 @@ export function useRealtime() {
               console.log('[Realtime] Member added to active group, refreshing members');
               queryClient.invalidateQueries({ queryKey: ['group-members', newMember.group_id] });
             }
+          }
+        }
+      )
+      // Listen for group member updates (role changes - admin/member)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'group_members',
+        },
+        async (payload) => {
+          const updatedMember = payload.new as { group_id: string; user_id: string; role: string };
+          console.log('[Realtime] Group member UPDATE received:', updatedMember);
+
+          // Refresh group members if viewing this group (to show updated admin status)
+          const currentActiveGroupId = activeGroupIdRef.current;
+          if (currentActiveGroupId === updatedMember.group_id) {
+            console.log('[Realtime] Member role updated in active group, refreshing members');
+            queryClient.invalidateQueries({ queryKey: ['group-members', updatedMember.group_id] });
           }
         }
       )
