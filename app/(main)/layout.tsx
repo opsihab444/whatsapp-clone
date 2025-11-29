@@ -27,7 +27,7 @@ export default function MainLayout({
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<'all' | 'groups'>('all');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'groups' | 'unread' | 'favorites'>('all');
   const { activeChatId, activeGroupId, setActiveChatId, setActiveGroupId } = useUIStore();
   const supabase = useMemo(() => createClient(), []);
   const queryClient = useQueryClient();
@@ -77,6 +77,21 @@ export default function MainLayout({
       return timeB - timeA;
     });
   }, [groups, conversations]);
+
+  // Filter items based on active filter
+  const filteredItems = useMemo(() => {
+    switch (activeFilter) {
+      case 'unread':
+        return mergedItems.filter(item => (item.unread_count || 0) > 0);
+      case 'groups':
+        return mergedItems.filter(item => 'group' in item);
+      case 'favorites':
+        return mergedItems.filter(item => item.is_favorite);
+      case 'all':
+      default:
+        return mergedItems;
+    }
+  }, [mergedItems, activeFilter]);
 
   // Memoize user info
   const userInfo = useMemo(() => {
@@ -277,32 +292,10 @@ export default function MainLayout({
                     </button>
                   </div>
                 </div>
-              ) : activeFilter === 'groups' ? (
-                <div className="h-full overflow-y-auto">
-                  {groups && groups.length > 0 ? (
-                    groups.map((group) => (
-                      <GroupRow
-                        key={group.id}
-                        group={group}
-                        isActive={activeGroupId === group.id}
-                        onClick={() => handleGroupSelect(group.id)}
-                        currentUserId={currentUser?.id}
-                        searchQuery={searchQuery}
-                      />
-                    ))
-                  ) : (
-                    <div className="flex items-center justify-center h-full p-4">
-                      <div className="text-center">
-                        <p className="text-sm font-medium text-muted-foreground mb-1">No groups yet</p>
-                        <p className="text-xs text-muted-foreground">Create a group to get started</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
               ) : (
                 <div className="h-full overflow-y-auto">
                   <ChatList
-                    items={mergedItems}
+                    items={filteredItems}
                     isLoading={isGroupsLoading || isChatsLoading}
                     activeId={activeChatId || activeGroupId || undefined}
                     onSelect={(item: Conversation | GroupConversation) => {

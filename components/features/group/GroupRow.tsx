@@ -6,7 +6,27 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { cn, formatConversationTime, truncate } from '@/lib/utils';
 import { useUIStore } from '@/store/ui.store';
-import { Users } from 'lucide-react';
+import { toggleFavorite } from '@/services/chat.service';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  ChevronDown,
+  Archive,
+  BellOff,
+  Pin,
+  Tag,
+  MessageSquare,
+  Heart,
+  HeartOff,
+  Trash2,
+  Ban,
+  Users
+} from 'lucide-react';
 
 interface GroupRowProps {
   group: GroupConversation;
@@ -121,10 +141,46 @@ function GroupRowComponent({
       : '';
 
   // If no content but has timestamp, it's likely an image message (content is null for images)
-  const lastMessage = last_message_content 
-    ? last_message_content 
+  const lastMessage = last_message_content
+    ? last_message_content
     : (last_message_time ? '📷 Photo' : 'No messages yet');
   const timestamp = last_message_time ? formatConversationTime(last_message_time) : '';
+
+  // Handlers for menu actions
+  const handleArchive = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Archive group', group.id);
+  };
+
+  const handleMute = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Mute group', group.id);
+  };
+
+  const handlePin = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Pin group', group.id);
+  };
+
+  const handleLabel = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Label group', group.id);
+  };
+
+  const handleMarkUnread = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Mark as unread', group.id);
+  };
+
+  const handleFavorite = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    toggleFavorite(group.id);
+  };
+
+  const handleLeave = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Leave group', group.id);
+  };
 
   return (
     <div
@@ -140,7 +196,7 @@ function GroupRowComponent({
       aria-label={`Group chat ${displayName}${unread_count > 0 ? `, ${unread_count} unread messages` : ''}`}
       aria-current={isActive ? 'true' : 'false'}
       className={cn(
-        'group flex items-center gap-4 px-4 py-3 cursor-pointer transition-all duration-300 hover:bg-accent/50 focus:outline-none focus:bg-accent/50 mx-2 rounded-xl border border-transparent hover:border-border/50',
+        'group flex items-center gap-4 px-4 py-3 cursor-pointer transition-all duration-300 hover:bg-accent/50 focus:outline-none focus:bg-accent/50 mx-2 rounded-xl border border-transparent hover:border-border/50 relative',
         isActive && 'bg-accent shadow-sm border-border/50'
       )}
     >
@@ -159,19 +215,65 @@ function GroupRowComponent({
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col justify-center h-full pr-2">
         <div className="flex items-center justify-between mb-1">
-          <p className="text-[18px] text-foreground truncate leading-6 font-medium">
+          <p className="text-[18px] text-foreground truncate leading-6 font-medium flex items-center gap-1">
             {highlightText(displayName)}
           </p>
           {timestamp && (
             <span
               className={cn(
-                'text-[13px] leading-4 transition-colors ml-2',
+                'text-[13px] leading-4 transition-colors ml-2 group-hover:hidden',
                 unread_count > 0 ? 'text-primary font-semibold' : 'text-muted-foreground'
               )}
             >
               {timestamp}
             </span>
           )}
+
+          {/* Dropdown Menu Trigger - Visible on Hover */}
+          <div className="hidden group-hover:block absolute right-4 top-3 z-10">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <button className="p-1 rounded-full hover:bg-background/80 text-muted-foreground hover:text-foreground transition-colors shadow-sm bg-background/50 backdrop-blur-sm">
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onClick={handleArchive}>
+                  <Archive className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>Archive group</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleMute}>
+                  <BellOff className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>Mute notifications</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handlePin}>
+                  <Pin className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>Pin group</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleLabel}>
+                  <Tag className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>Label group</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleMarkUnread}>
+                  <MessageSquare className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>Mark as unread</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleFavorite}>
+                  {group.is_favorite ? (
+                    <HeartOff className="mr-2 h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Heart className="mr-2 h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span>{group.is_favorite ? 'Remove from favourites' : 'Add to favorites'}</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleLeave} className="text-destructive focus:text-destructive">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  <span>Leave group</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         <div className="flex items-center justify-between gap-2">
@@ -210,6 +312,7 @@ export const GroupRow = React.memo(GroupRowComponent, (prevProps, nextProps) => 
     prevProps.group.last_message_sender_id === nextProps.group.last_message_sender_id &&
     prevProps.group.last_message_sender_name === nextProps.group.last_message_sender_name &&
     prevProps.group.unread_count === nextProps.group.unread_count &&
+    prevProps.group.is_favorite === nextProps.group.is_favorite &&
     // Check for group info updates (name/avatar changes)
     prevProps.group.group?.name === nextProps.group.group?.name &&
     prevProps.group.group?.avatar_url === nextProps.group.group?.avatar_url &&

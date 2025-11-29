@@ -98,6 +98,7 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
             key={chatId}
             conversationId={chatId}
             currentUserId={currentUser?.id}
+            currentUserName={currentUser?.name}
             otherUserAvatarUrl={conversation?.other_user?.avatar_url}
             otherUserName={conversation?.other_user?.full_name || conversation?.other_user?.email}
           />

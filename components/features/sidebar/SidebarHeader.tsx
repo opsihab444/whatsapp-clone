@@ -25,8 +25,8 @@ interface SidebarHeaderProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
   onSearchSubmit?: (query: string) => void;
-  activeFilter?: 'all' | 'groups';
-  onFilterChange?: (filter: 'all' | 'groups') => void;
+  activeFilter?: 'all' | 'groups' | 'unread' | 'favorites';
+  onFilterChange?: (filter: 'all' | 'groups' | 'unread' | 'favorites') => void;
 }
 
 export function SidebarHeader({
@@ -152,21 +152,29 @@ export function SidebarHeader({
           variant="ghost"
           onClick={() => onFilterChange?.('all')}
           className={`h-8 px-3.5 rounded-full text-[14px] ${activeFilter === 'all'
-              ? 'bg-primary/20 hover:bg-primary/30 text-primary font-medium border border-primary/30'
-              : 'hover:bg-accent text-muted-foreground hover:text-foreground font-normal'
+            ? 'bg-primary/20 hover:bg-primary/30 text-primary font-medium border border-primary/30'
+            : 'hover:bg-accent text-muted-foreground hover:text-foreground font-normal'
             }`}
         >
           All
         </Button>
         <Button
           variant="ghost"
-          className="h-8 px-3.5 rounded-full hover:bg-accent text-muted-foreground hover:text-foreground text-[14px] font-normal"
+          onClick={() => onFilterChange?.('unread')}
+          className={`h-8 px-3.5 rounded-full text-[14px] ${activeFilter === 'unread'
+            ? 'bg-primary/20 hover:bg-primary/30 text-primary font-medium border border-primary/30'
+            : 'hover:bg-accent text-muted-foreground hover:text-foreground font-normal'
+            }`}
         >
           Unread
         </Button>
         <Button
           variant="ghost"
-          className="h-8 px-3.5 rounded-full hover:bg-accent text-muted-foreground hover:text-foreground text-[14px] font-normal"
+          onClick={() => onFilterChange?.('favorites')}
+          className={`h-8 px-3.5 rounded-full text-[14px] ${activeFilter === 'favorites'
+            ? 'bg-primary/20 hover:bg-primary/30 text-primary font-medium border border-primary/30'
+            : 'hover:bg-accent text-muted-foreground hover:text-foreground font-normal'
+            }`}
         >
           Favorites
         </Button>
@@ -174,8 +182,8 @@ export function SidebarHeader({
           variant="ghost"
           onClick={() => onFilterChange?.('groups')}
           className={`h-8 px-3.5 rounded-full text-[14px] ${activeFilter === 'groups'
-              ? 'bg-primary/20 hover:bg-primary/30 text-primary font-medium border border-primary/30'
-              : 'hover:bg-accent text-muted-foreground hover:text-foreground font-normal'
+            ? 'bg-primary/20 hover:bg-primary/30 text-primary font-medium border border-primary/30'
+            : 'hover:bg-accent text-muted-foreground hover:text-foreground font-normal'
             }`}
         >
           Groups

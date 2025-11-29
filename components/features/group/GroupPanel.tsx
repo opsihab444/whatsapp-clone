@@ -31,7 +31,7 @@ export function GroupPanel({ groupId }: GroupPanelProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showInfoPanel, setShowInfoPanel] = useState(false);
-  const supabase = useMemo(() => createClient(), []);
+  const supabase = createClient();
   const queryClient = useQueryClient();
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
@@ -57,8 +57,21 @@ export function GroupPanel({ groupId }: GroupPanelProps) {
     }
   }, [message]);
 
-  // Fetch group info from cache
-  const { data: groups } = useQuery<GroupConversation[]>({ queryKey: ['groups'] });
+  // Fetch group info
+  const { data: groups } = useQuery<GroupConversation[]>({
+    queryKey: ['groups'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('group_members')
+        .select('*, group:groups(*)')
+        .eq('user_id', currentUser?.id)
+        .order('last_read_at', { ascending: false });
+
+      if (error) throw error;
+      return data as unknown as GroupConversation[];
+    },
+    enabled: !!currentUser?.id
+  });
   const group = useMemo(() => {
     if (!groups) return null;
     return groups.find((g) => g.id === groupId);
@@ -74,9 +87,6 @@ export function GroupPanel({ groupId }: GroupPanelProps) {
     },
     staleTime: 1000 * 60 * 10,
   });
-
-  // Mark group as read
-  useMarkGroupAsRead(groupId);
 
   // Broadcast typing
   const broadcastTyping = useCallback(() => {
@@ -176,7 +186,7 @@ export function GroupPanel({ groupId }: GroupPanelProps) {
         const maxSize = 300;
         let width = img.naturalWidth;
         let height = img.naturalHeight;
-        
+
         if (width > maxSize || height > maxSize) {
           if (width > height) {
             height = Math.round((height / width) * maxSize);
@@ -298,12 +308,12 @@ export function GroupPanel({ groupId }: GroupPanelProps) {
         const updated = old.map((g: any) =>
           g.id === groupId || g.group?.id === groupId
             ? {
-                ...g,
-                last_message_content: '📷 Photo',
-                last_message_time: timestamp,
-                last_message_sender_id: currentUser.id,
-                last_message_sender_name: currentUser.name,
-              }
+              ...g,
+              last_message_content: '📷 Photo',
+              last_message_time: timestamp,
+              last_message_sender_id: currentUser.id,
+              last_message_sender_name: currentUser.name,
+            }
             : g
         );
         return updated.sort((a: any, b: any) => {
@@ -388,12 +398,12 @@ export function GroupPanel({ groupId }: GroupPanelProps) {
       const updated = old.map((g: any) =>
         g.id === groupId || g.group?.id === groupId
           ? {
-              ...g,
-              last_message_content: messageContent,
-              last_message_time: optimisticMessage.created_at,
-              last_message_sender_id: currentUser.id,
-              last_message_sender_name: currentUser.name,
-            }
+            ...g,
+            last_message_content: messageContent,
+            last_message_time: optimisticMessage.created_at,
+            last_message_sender_id: currentUser.id,
+            last_message_sender_name: currentUser.name,
+          }
           : g
       );
       return updated.sort((a: any, b: any) => {

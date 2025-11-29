@@ -37,11 +37,12 @@ const LoadingIndicator = ({ isFetching }: { isFetching: boolean }) => {
 interface MessageListProps {
     conversationId: string;
     currentUserId?: string;
+    currentUserName?: string | null;
     otherUserAvatarUrl?: string | null;
     otherUserName?: string | null;
 }
 
-function MessageListComponent({ conversationId, currentUserId, otherUserAvatarUrl, otherUserName }: MessageListProps) {
+function MessageListComponent({ conversationId, currentUserId, currentUserName, otherUserAvatarUrl, otherUserName }: MessageListProps) {
     const {
         data,
         fetchNextPage,
@@ -402,6 +403,7 @@ function MessageListComponent({ conversationId, currentUserId, otherUserAvatarUr
                                         recipientAvatarUrl={otherUserAvatarUrl}
                                         recipientName={otherUserName}
                                         isLatestImage={isLatestImage}
+                                        currentUserName={currentUserName}
                                     />
                                 </div>
                             );
@@ -459,6 +461,7 @@ export const MessageList = React.memo(MessageListComponent, (prevProps, nextProp
     return (
         prevProps.conversationId === nextProps.conversationId &&
         prevProps.currentUserId === nextProps.currentUserId &&
+        prevProps.currentUserName === nextProps.currentUserName &&
         prevProps.otherUserAvatarUrl === nextProps.otherUserAvatarUrl &&
         prevProps.otherUserName === nextProps.otherUserName
     );

@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Message } from '@/types';
 import { cn, formatMessageTimeDisplay } from '@/lib/utils';
-import { Check, CheckCheck, ChevronDown, Edit, Trash2, Reply, Copy, Info, Loader2 } from 'lucide-react';
+import { Check, CheckCheck, ChevronDown, Edit, Trash2, Reply, Copy, Info, Loader2, Download } from 'lucide-react';
 import { useUIStore } from '@/store/ui.store';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import Image from 'next/image';
@@ -13,6 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ImagePreviewModal } from './ImagePreviewModal';
 
 // Global cache for blob URLs (for sender's optimistic UI)
 const blobUrlCache = new Map<string, string>();
@@ -53,6 +54,7 @@ function ImageMessageContent({
   width,
   height,
   isLatest,
+  onClick,
 }: {
   mediaUrl: string;
   blobUrl?: string | null;
@@ -63,6 +65,7 @@ function ImageMessageContent({
   width?: number | null;
   height?: number | null;
   isLatest?: boolean;
+  onClick?: () => void;
 }) {
   const isBlobUrl = mediaUrl.startsWith('blob:');
   const cachedBlobUrl = blobUrlCache.get(messageId) || blobUrlCache.get(mediaUrl) || blobUrl;
@@ -150,9 +153,13 @@ function ImageMessageContent({
   return (
     <div
       ref={containerRef}
-      className="relative overflow-hidden rounded-2xl bg-muted"
+      className="relative overflow-hidden rounded-2xl bg-muted cursor-pointer group/image"
       style={{ width: displayWidth, height: displayHeight }}
+      onClick={onClick}
     >
+      {/* Hover overlay */}
+      <div className="absolute inset-0 bg-black/0 group-hover/image:bg-black/10 transition-colors z-10" />
+
       {/* Only load image when visible or is latest */}
       {isVisible && (
         <>
@@ -182,15 +189,37 @@ function ImageMessageContent({
         </>
       )}
 
-      {/* Sending overlay - subtle indicator */}
+      {/* Sending overlay with large spinner */}
       {status === 'sending' && (
-        <div className="absolute inset-0 bg-black/30 rounded-2xl flex items-center justify-center">
-          <Loader2 className="w-6 h-6 text-white/80 animate-spin" />
+        <div className="absolute inset-0 bg-black/50 rounded-2xl flex items-center justify-center z-20">
+          <div className="relative">
+            <svg className="w-16 h-16 animate-spin" viewBox="0 0 50 50">
+              <circle
+                cx="25"
+                cy="25"
+                r="20"
+                fill="none"
+                stroke="rgba(255,255,255,0.2)"
+                strokeWidth="4"
+              />
+              <circle
+                cx="25"
+                cy="25"
+                r="20"
+                fill="none"
+                stroke="white"
+                strokeWidth="4"
+                strokeLinecap="round"
+                strokeDasharray="80"
+                strokeDashoffset="60"
+              />
+            </svg>
+          </div>
         </div>
       )}
 
       {/* Timestamp */}
-      <div className="absolute bottom-2 right-2 bg-black/50 rounded px-1.5 py-0.5">
+      <div className="absolute bottom-2 right-2 bg-black/50 rounded px-1.5 py-0.5 z-20">
         <time className="text-[11px] text-white" dateTime={createdAt}>
           {formatMessageTimeDisplay(createdAt)}
         </time>
@@ -209,6 +238,7 @@ interface MessageBubbleProps {
   recipientAvatarUrl?: string | null;
   recipientName?: string | null;
   isLatestImage?: boolean; // Priority load for latest images
+  currentUserName?: string; // For reply display
 }
 
 function MessageBubbleComponent({
@@ -220,6 +250,7 @@ function MessageBubbleComponent({
   recipientAvatarUrl,
   recipientName,
   isLatestImage = false,
+  currentUserName,
 }: MessageBubbleProps) {
   const {
     id,
@@ -230,12 +261,15 @@ function MessageBubbleComponent({
     is_edited,
     is_deleted,
     created_at,
+    reply_to,
   } = message;
 
   // Get UI store actions
   const openEditModal = useUIStore((state) => state.openEditModal);
   const openDeleteModal = useUIStore((state) => state.openDeleteModal);
   const setReplyTo = useUIStore((state) => state.setReplyTo);
+
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Render status indicator for own messages - Facebook Messenger style
   // All status indicators shown below message, not inside bubble
@@ -248,11 +282,11 @@ function MessageBubbleComponent({
   const renderStatusBelow = () => {
     if (!isOwnMessage) return null;
 
-    // Show subtle indicator for queued/sending messages - no animation
+    // Show "Sending..." for queued/sending messages
     if ((status === 'queued' || status === 'sending') && showSeenAvatar) {
       return (
         <div className="flex justify-end mt-1 mr-1">
-          <div className="w-3 h-3 rounded-full border border-muted-foreground/50" />
+          <span className="text-[11px] text-muted-foreground">Sending...</span>
         </div>
       );
     }
@@ -312,10 +346,29 @@ function MessageBubbleComponent({
     }
   };
 
+  const handleDownload = async () => {
+    if (!media_url) return;
+    try {
+      const response = await fetch(media_url);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `whatsapp-image-${Date.now()}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Download failed:', error);
+      window.open(media_url, '_blank');
+    }
+  };
+
   return (
     <div
       className={cn(
-        'flex w-full mb-2 group relative px-[4%] md:px-[8%]',
+        'flex w-full mb-2 group relative px-[4%] md:px-[8%] animate-slide-up',
         isOwnMessage ? 'justify-end' : 'justify-start'
       )}
       role="article"
@@ -361,22 +414,62 @@ function MessageBubbleComponent({
             )}
           >
             {/* Image message */}
+            {/* Reply Preview */}
+            {reply_to && !is_deleted && (
+              <div 
+                className={cn(
+                  "mb-1 px-2 py-1.5 rounded-lg border-l-2 cursor-pointer",
+                  isOwnMessage 
+                    ? "bg-primary-foreground/10 border-primary-foreground/50" 
+                    : "bg-muted/50 border-primary"
+                )}
+              >
+                <p className={cn(
+                  "text-xs font-medium truncate",
+                  isOwnMessage ? "text-primary-foreground/80" : "text-primary"
+                )}>
+                  {reply_to.sender_id === message.sender_id 
+                    ? (isOwnMessage ? 'You' : senderName) 
+                    : (reply_to.sender?.full_name || (isOwnMessage ? recipientName : currentUserName) || 'Unknown')}
+                </p>
+                <p className={cn(
+                  "text-xs truncate",
+                  isOwnMessage ? "text-primary-foreground/60" : "text-muted-foreground"
+                )}>
+                  {reply_to.type === 'image' ? '📷 Photo' : reply_to.content || 'Message deleted'}
+                </p>
+              </div>
+            )}
+
             {type === 'image' && media_url && !is_deleted ? (
-              <ImageMessageContent
-                mediaUrl={media_url}
-                blobUrl={(message as any)._blobUrl}
-                status={status}
-                createdAt={created_at}
-                isOwnMessage={isOwnMessage}
-                messageId={id}
-                width={message.media_width}
-                height={message.media_height}
-                isLatest={isLatestImage}
-              />
+              <>
+                <ImageMessageContent
+                  mediaUrl={media_url}
+                  blobUrl={(message as any)._blobUrl}
+                  status={status}
+                  createdAt={created_at}
+                  isOwnMessage={isOwnMessage}
+                  messageId={id}
+                  width={message.media_width}
+                  height={message.media_height}
+                  isLatest={isLatestImage}
+                  onClick={() => setIsPreviewOpen(true)}
+                />
+                <ImagePreviewModal
+                  isOpen={isPreviewOpen}
+                  onClose={() => setIsPreviewOpen(false)}
+                  imageUrl={media_url}
+                  senderName={senderName}
+                  timestamp={formatMessageTimeDisplay(created_at)}
+                />
+              </>
             ) : (
               <>
                 {/* Text message content with space for timestamp */}
-                <div className="whitespace-pre-wrap break-words overflow-wrap-anywhere word-break-break-word pr-[75px] pb-[3px] min-h-[22px]" style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                <div
+                  className="whitespace-pre-wrap break-words pr-[75px] pb-[3px] min-h-[22px]"
+                  style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                >
                   {displayContent}
                 </div>
 
@@ -442,11 +535,21 @@ function MessageBubbleComponent({
                   Reply
                 </DropdownMenuItem>
 
+                {/* Download - only for images */}
+                {type === 'image' && media_url && (
+                  <DropdownMenuItem onClick={handleDownload}>
+                    <Download className="mr-4 h-4 w-4 text-muted-foreground" />
+                    Download
+                  </DropdownMenuItem>
+                )}
+
                 {/* Copy */}
-                <DropdownMenuItem onClick={handleCopy}>
-                  <Copy className="mr-4 h-4 w-4 text-muted-foreground" />
-                  Copy
-                </DropdownMenuItem>
+                {type === 'text' && (
+                  <DropdownMenuItem onClick={handleCopy}>
+                    <Copy className="mr-4 h-4 w-4 text-muted-foreground" />
+                    Copy
+                  </DropdownMenuItem>
+                )}
 
                 {/* Edit - only for own messages */}
                 {isOwnMessage && (
@@ -489,13 +592,15 @@ export const MessageBubble = React.memo(MessageBubbleComponent, (prevProps, next
     prevProps.message.is_edited === nextProps.message.is_edited &&
     prevProps.message.is_deleted === nextProps.message.is_deleted &&
     prevProps.message.created_at === nextProps.message.created_at &&
+    prevProps.message.reply_to_id === nextProps.message.reply_to_id &&
     prevProps.isOwnMessage === nextProps.isOwnMessage &&
     prevProps.senderName === nextProps.senderName &&
     prevProps.showTail === nextProps.showTail &&
     prevProps.showSeenAvatar === nextProps.showSeenAvatar &&
     prevProps.recipientAvatarUrl === nextProps.recipientAvatarUrl &&
     prevProps.recipientName === nextProps.recipientName &&
-    prevProps.isLatestImage === nextProps.isLatestImage
+    prevProps.isLatestImage === nextProps.isLatestImage &&
+    prevProps.currentUserName === nextProps.currentUserName
   );
 });
 

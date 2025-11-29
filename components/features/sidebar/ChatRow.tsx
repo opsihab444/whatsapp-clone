@@ -6,6 +6,26 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { cn, formatConversationTime, truncate } from '@/lib/utils';
 import { useUIStore } from '@/store/ui.store';
+import { toggleFavorite } from '@/services/chat.service';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  ChevronDown,
+  Archive,
+  BellOff,
+  Pin,
+  Tag,
+  MessageSquare,
+  Heart,
+  HeartOff,
+  Trash2,
+  Ban
+} from 'lucide-react';
 
 interface ChatRowProps {
   conversation: Conversation;
@@ -112,6 +132,47 @@ function ChatRowComponent({
   const lastMessage = formatLastMessage();
   const timestamp = last_message_time ? formatConversationTime(last_message_time) : '';
 
+  // Handlers for menu actions
+  const handleArchive = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Archive chat', conversation.id);
+  };
+
+  const handleMute = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Mute chat', conversation.id);
+  };
+
+  const handlePin = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Pin chat', conversation.id);
+  };
+
+  const handleLabel = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Label chat', conversation.id);
+  };
+
+  const handleMarkUnread = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Mark as unread', conversation.id);
+  };
+
+  const handleFavorite = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    toggleFavorite(conversation.id);
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Delete chat', conversation.id);
+  };
+
+  const handleBlock = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    console.log('Block user', conversation.id);
+  };
+
   return (
     <div
       role="button"
@@ -126,7 +187,7 @@ function ChatRowComponent({
       aria-label={`Chat with ${displayName}${unread_count > 0 ? `, ${unread_count} unread messages` : ''}`}
       aria-current={isActive ? 'true' : 'false'}
       className={cn(
-        'group flex items-center gap-4 px-4 py-3 cursor-pointer transition-all duration-300 hover:bg-accent/50 focus:outline-none focus:bg-accent/50 mx-2 rounded-xl border border-transparent hover:border-border/50',
+        'group flex items-center gap-4 px-4 py-3 cursor-pointer transition-all duration-300 hover:bg-accent/50 focus:outline-none focus:bg-accent/50 mx-2 rounded-xl border border-transparent hover:border-border/50 relative',
         isActive && 'bg-accent shadow-sm border-border/50'
       )}
     >
@@ -145,19 +206,69 @@ function ChatRowComponent({
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col justify-center h-full pr-2">
         <div className="flex items-center justify-between mb-1">
-          <p className="text-[18px] text-foreground truncate leading-6 font-medium">
+          <p className="text-[18px] text-foreground truncate leading-6 font-medium flex items-center gap-1">
             {highlightText(displayName)}
           </p>
           {timestamp && (
             <span
               className={cn(
-                'text-[13px] leading-4 transition-colors ml-2',
+                'text-[13px] leading-4 transition-colors ml-2 group-hover:hidden',
                 unread_count > 0 ? 'text-primary font-semibold' : 'text-muted-foreground'
               )}
             >
               {timestamp}
             </span>
           )}
+
+          {/* Dropdown Menu Trigger - Visible on Hover */}
+          <div className="hidden group-hover:block absolute right-4 top-3 z-10">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                <button className="p-1 rounded-full hover:bg-background/80 text-muted-foreground hover:text-foreground transition-colors shadow-sm bg-background/50 backdrop-blur-sm">
+                  <ChevronDown className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuItem onClick={handleArchive}>
+                  <Archive className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>Archive chat</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleMute}>
+                  <BellOff className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>Mute notifications</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handlePin}>
+                  <Pin className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>Pin chat</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleLabel}>
+                  <Tag className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>Label chat</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleMarkUnread}>
+                  <MessageSquare className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>Mark as unread</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleFavorite}>
+                  {conversation.is_favorite ? (
+                    <HeartOff className="mr-2 h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Heart className="mr-2 h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span>{conversation.is_favorite ? 'Remove from favourites' : 'Add to favorites'}</span>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleBlock}>
+                  <Ban className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>Block user</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDelete} className="text-destructive focus:text-destructive">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  <span>Delete chat</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
 
         <div className="flex items-center justify-between gap-2">
@@ -194,6 +305,7 @@ export const ChatRow = React.memo(ChatRowComponent, (prevProps, nextProps) => {
     prevProps.conversation.last_message_time === nextProps.conversation.last_message_time &&
     prevProps.conversation.last_message_sender_id === nextProps.conversation.last_message_sender_id &&
     prevProps.conversation.unread_count === nextProps.conversation.unread_count &&
+    prevProps.conversation.is_favorite === nextProps.conversation.is_favorite &&
     // Check for profile updates (name/avatar changes)
     prevProps.conversation.other_user?.full_name === nextProps.conversation.other_user?.full_name &&
     prevProps.conversation.other_user?.avatar_url === nextProps.conversation.other_user?.avatar_url &&
