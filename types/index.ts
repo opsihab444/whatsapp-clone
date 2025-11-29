@@ -39,6 +39,14 @@ export interface Message {
   created_at: string;
   updated_at: string;
   sender?: Profile;
+  reply_to_id?: string | null;
+  reply_to?: {
+    id: string;
+    content: string | null;
+    sender_id: string;
+    sender?: Profile;
+    type: MessageType;
+  } | null;
 }
 
 export interface OptimisticMessage extends Omit<Message, 'id'> {
@@ -84,6 +92,13 @@ export interface GroupConversation {
 
 export interface GroupMessage extends Omit<Message, 'conversation_id'> {
   group_id: string;
+  reply_to?: {
+    id: string;
+    content: string | null;
+    sender_id: string;
+    sender?: Profile;
+    type: MessageType;
+  } | null;
 }
 
 // Service result types

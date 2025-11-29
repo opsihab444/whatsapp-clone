@@ -238,6 +238,7 @@ interface MessageBubbleProps {
   recipientAvatarUrl?: string | null;
   recipientName?: string | null;
   isLatestImage?: boolean; // Priority load for latest images
+  currentUserName?: string; // For reply display
 }
 
 function MessageBubbleComponent({
@@ -249,6 +250,7 @@ function MessageBubbleComponent({
   recipientAvatarUrl,
   recipientName,
   isLatestImage = false,
+  currentUserName,
 }: MessageBubbleProps) {
   const {
     id,
@@ -259,6 +261,7 @@ function MessageBubbleComponent({
     is_edited,
     is_deleted,
     created_at,
+    reply_to,
   } = message;
 
   // Get UI store actions
@@ -411,6 +414,33 @@ function MessageBubbleComponent({
             )}
           >
             {/* Image message */}
+            {/* Reply Preview */}
+            {reply_to && !is_deleted && (
+              <div 
+                className={cn(
+                  "mb-1 px-2 py-1.5 rounded-lg border-l-2 cursor-pointer",
+                  isOwnMessage 
+                    ? "bg-primary-foreground/10 border-primary-foreground/50" 
+                    : "bg-muted/50 border-primary"
+                )}
+              >
+                <p className={cn(
+                  "text-xs font-medium truncate",
+                  isOwnMessage ? "text-primary-foreground/80" : "text-primary"
+                )}>
+                  {reply_to.sender_id === message.sender_id 
+                    ? (isOwnMessage ? 'You' : senderName) 
+                    : (reply_to.sender?.full_name || (isOwnMessage ? recipientName : currentUserName) || 'Unknown')}
+                </p>
+                <p className={cn(
+                  "text-xs truncate",
+                  isOwnMessage ? "text-primary-foreground/60" : "text-muted-foreground"
+                )}>
+                  {reply_to.type === 'image' ? '📷 Photo' : reply_to.content || 'Message deleted'}
+                </p>
+              </div>
+            )}
+
             {type === 'image' && media_url && !is_deleted ? (
               <>
                 <ImageMessageContent
@@ -562,13 +592,15 @@ export const MessageBubble = React.memo(MessageBubbleComponent, (prevProps, next
     prevProps.message.is_edited === nextProps.message.is_edited &&
     prevProps.message.is_deleted === nextProps.message.is_deleted &&
     prevProps.message.created_at === nextProps.message.created_at &&
+    prevProps.message.reply_to_id === nextProps.message.reply_to_id &&
     prevProps.isOwnMessage === nextProps.isOwnMessage &&
     prevProps.senderName === nextProps.senderName &&
     prevProps.showTail === nextProps.showTail &&
     prevProps.showSeenAvatar === nextProps.showSeenAvatar &&
     prevProps.recipientAvatarUrl === nextProps.recipientAvatarUrl &&
     prevProps.recipientName === nextProps.recipientName &&
-    prevProps.isLatestImage === nextProps.isLatestImage
+    prevProps.isLatestImage === nextProps.isLatestImage &&
+    prevProps.currentUserName === nextProps.currentUserName
   );
 });
 

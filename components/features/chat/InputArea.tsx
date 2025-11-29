@@ -1,15 +1,15 @@
 'use client';
 
 import React, { useState, useRef, useEffect, KeyboardEvent, useCallback, useMemo } from 'react';
-import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Send, Plus, Smile, Mic, Image as ImageIcon, X, Loader2 } from 'lucide-react';
+import { Send, Smile, Mic, Image as ImageIcon, X, Loader2, Reply } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import { showInfoToast, showErrorToast } from '@/lib/toast.utils';
 import { addToQueue } from '@/lib/offline-queue';
 import { Message } from '@/types';
 import Image from 'next/image';
+import { useUIStore } from '@/store/ui.store';
 
 interface InputAreaProps {
   conversationId: string;
@@ -30,6 +30,10 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
   const supabase = useMemo(() => createClient(), []);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
+  
+  // Reply state from UI store
+  const replyTo = useUIStore((state) => state.replyTo);
+  const setReplyTo = useUIStore((state) => state.setReplyTo);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -187,6 +191,12 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
     const timestamp = new Date().toISOString();
     const currentPreviewUrl = imagePreview;
     const currentFile = selectedImage;
+    const replyToId = replyTo?.id || null;
+
+    // Clear reply state immediately
+    if (replyTo) {
+      setReplyTo(null);
+    }
 
     // Get image dimensions BEFORE showing (instant from blob)
     const dimensions = await getImageDimensions(currentPreviewUrl);
@@ -206,6 +216,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
       is_deleted: false,
       created_at: timestamp,
       updated_at: timestamp,
+      reply_to_id: replyToId,
     };
 
     queryClient.setQueryData(['messages', conversationId], (old: any) => {
@@ -285,6 +296,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
         media_width: dimensions.width,
         media_height: dimensions.height,
         status: 'sent',
+        reply_to_id: replyToId,
       })
       .select()
       .single()
@@ -316,11 +328,11 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
           })
           .eq('id', conversationId);
       });
-  }, [conversationId, currentUserId, selectedImage, imagePreview, queryClient, supabase, uploadImageToCDN]);
+  }, [conversationId, currentUserId, selectedImage, imagePreview, queryClient, supabase, uploadImageToCDN, replyTo, setReplyTo, getImageDimensions]);
 
   // Send message - optimistic UI + database insert
   // Using only Postgres Realtime for message delivery (no WebSocket broadcast)
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, replyToId?: string | null) => {
     if (!currentUserId) return;
 
     const trimmedContent = content.trim();
@@ -342,6 +354,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
       is_deleted: false,
       created_at: timestamp,
       updated_at: timestamp,
+      reply_to_id: replyToId || null,
     };
 
     // 1. Instantly add to local cache (UI updates immediately)
@@ -389,6 +402,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
           content: trimmedContent,
           type: 'text',
           status: 'sent',
+          reply_to_id: replyToId || null,
         })
         .select()
         .single();
@@ -442,7 +456,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
     } catch (err) {
       console.error('Message send error:', err);
     }
-  }, [conversationId, currentUserId, queryClient, supabase]);
+  }, [conversationId, currentUserId, queryClient, supabase, replyTo]);
 
   const handleSend = () => {
     // If image is selected, send image
@@ -518,10 +532,18 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
 
     // Clear input immediately for better UX (optimistic)
     setMessage('');
+    
+    // Get reply ID before clearing
+    const replyToId = replyTo?.id || null;
+    
+    // Clear reply state
+    if (replyTo) {
+      setReplyTo(null);
+    }
 
     // Set sending state and send message
     setIsSending(true);
-    sendMessage(trimmedMessage);
+    sendMessage(trimmedMessage, replyToId);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -534,6 +556,30 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
 
   return (
     <div className="px-4 py-4 z-20 min-h-[80px] flex flex-col bg-transparent" role="form" aria-label="Message input">
+      {/* Reply Preview */}
+      {replyTo && (
+        <div className="flex items-center gap-2 mb-2 px-2 max-w-4xl mx-auto w-full">
+          <div className="flex-1 flex items-center gap-3 bg-secondary/50 rounded-xl px-3 py-2 border-l-4 border-primary">
+            <Reply className="h-4 w-4 text-primary shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-primary truncate">
+                {replyTo.senderName}
+              </p>
+              <p className="text-sm text-muted-foreground truncate">
+                {replyTo.content}
+              </p>
+            </div>
+            <button
+              onClick={() => setReplyTo(null)}
+              className="p-1 hover:bg-muted rounded-full transition-colors shrink-0"
+              aria-label="Cancel reply"
+            >
+              <X className="h-4 w-4 text-muted-foreground" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Image Preview */}
       {imagePreview && (
         <div className="flex items-center gap-2 mb-2 px-2 max-w-4xl mx-auto w-full">

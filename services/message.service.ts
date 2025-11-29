@@ -19,19 +19,7 @@ export async function getMessages(
     const { data: messages, error: messagesError } = await supabase
       .from('messages')
       .select(`
-        id,
-        conversation_id,
-        sender_id,
-        content,
-        type,
-        media_url,
-        media_width,
-        media_height,
-        status,
-        is_edited,
-        is_deleted,
-        created_at,
-        updated_at,
+        *,
         sender:profiles!messages_sender_id_fkey(
           id,
           email,
@@ -69,8 +57,48 @@ export async function getMessages(
       is_deleted: msg.is_deleted,
       created_at: msg.created_at,
       updated_at: msg.updated_at,
+      reply_to_id: msg.reply_to_id || null,
+      reply_to: null, // Will be populated after migration
       sender: Array.isArray(msg.sender) ? msg.sender[0] : msg.sender,
     }));
+
+    // If any messages have reply_to_id, fetch the replied messages
+    const replyIds = transformedMessages
+      .filter(m => m.reply_to_id)
+      .map(m => m.reply_to_id as string);
+
+    if (replyIds.length > 0) {
+      const { data: repliedMessages } = await supabase
+        .from('messages')
+        .select(`
+          id,
+          content,
+          sender_id,
+          type,
+          sender:profiles!messages_sender_id_fkey(
+            id,
+            full_name,
+            avatar_url
+          )
+        `)
+        .in('id', replyIds);
+
+      if (repliedMessages) {
+        const replyMap = new Map(repliedMessages.map((r: any) => [r.id, {
+          id: r.id,
+          content: r.content,
+          sender_id: r.sender_id,
+          type: r.type,
+          sender: Array.isArray(r.sender) ? r.sender[0] : r.sender,
+        }]));
+
+        transformedMessages.forEach(msg => {
+          if (msg.reply_to_id && replyMap.has(msg.reply_to_id)) {
+            msg.reply_to = replyMap.get(msg.reply_to_id) || null;
+          }
+        });
+      }
+    }
 
     return { success: true, data: transformedMessages };
   } catch (error) {
