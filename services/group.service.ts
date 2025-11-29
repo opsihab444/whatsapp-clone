@@ -13,7 +13,7 @@ export async function createGroup(
 ): Promise<ServiceResult<Group>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
@@ -79,7 +79,7 @@ export async function getGroups(
 ): Promise<ServiceResult<GroupConversation[]>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
@@ -133,14 +133,14 @@ export async function getGroups(
     const senderIds = groups
       .filter((g) => g.last_message_sender_id && !g.last_message_sender_name)
       .map((g) => g.last_message_sender_id);
-    
+
     let senderNameMap = new Map<string, string>();
     if (senderIds.length > 0) {
       const { data: senderProfiles } = await supabase
         .from('profiles')
         .select('id, full_name, email')
         .in('id', senderIds);
-      
+
       senderProfiles?.forEach((p) => {
         const name = p.full_name || p.email?.split('@')[0] || null;
         if (name) senderNameMap.set(p.id, name);
@@ -157,6 +157,10 @@ export async function getGroups(
         created_by: group.created_by,
         created_at: group.created_at,
         updated_at: group.updated_at,
+        last_message_content: group.last_message_content,
+        last_message_time: group.last_message_time,
+        last_message_sender_id: group.last_message_sender_id,
+        last_message_sender_name: group.last_message_sender_name || senderNameMap.get(group.last_message_sender_id) || null,
       },
       last_message_content: group.last_message_content,
       last_message_time: group.last_message_time,
@@ -186,7 +190,7 @@ export async function getGroupMembers(
 ): Promise<ServiceResult<GroupMember[]>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
@@ -242,7 +246,7 @@ export async function addGroupMember(
 ): Promise<ServiceResult<void>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
@@ -293,7 +297,7 @@ export async function addGroupMember(
     // Send system message about member addition
     const addedUserName = addedUserProfile?.full_name || addedUserProfile?.email?.split('@')[0] || 'Someone';
     const currentUserName = currentUserProfile?.full_name || currentUserProfile?.email?.split('@')[0] || 'Admin';
-    
+
     await supabase
       .from('group_messages')
       .insert({
@@ -325,7 +329,7 @@ export async function removeGroupMember(
 ): Promise<ServiceResult<void>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
@@ -385,13 +389,13 @@ export async function removeGroupMember(
     // Send system message about member removal
     const removedUserName = removedUserProfile?.full_name || removedUserProfile?.email?.split('@')[0] || 'Someone';
     const currentUserName = currentUserProfile?.full_name || currentUserProfile?.email?.split('@')[0] || 'Admin';
-    
+
     // Different message for self-leave vs kick
     const isLeaving = userId === user.id;
-    const systemMessage = isLeaving 
+    const systemMessage = isLeaving
       ? `${currentUserName} left the group`
       : `${currentUserName} removed ${removedUserName}`;
-    
+
     await supabase
       .from('group_messages')
       .insert({
@@ -414,6 +418,120 @@ export async function removeGroupMember(
 }
 
 /**
+ * Update a member's role (e.g. make admin)
+ */
+export async function updateGroupMemberRole(
+  supabase: SupabaseClient,
+  groupId: string,
+  userId: string,
+  newRole: 'admin' | 'member'
+): Promise<ServiceResult<void>> {
+  console.log('[GroupService] updateGroupMemberRole called', { groupId, userId, newRole });
+  try {
+    const user = await getCachedUser(supabase);
+
+    if (!user) {
+      console.error('[GroupService] User not authenticated');
+      return {
+        success: false,
+        error: { type: 'AUTH_ERROR', message: 'User not authenticated' },
+      };
+    }
+
+    // Check if current user is admin
+    const { data: membership, error: membershipError } = await supabase
+      .from('group_members')
+      .select('role')
+      .eq('group_id', groupId)
+      .eq('user_id', user.id)
+      .single();
+
+    if (membershipError) {
+      console.error('[GroupService] Error fetching membership', membershipError);
+      return {
+        success: false,
+        error: { type: 'NETWORK_ERROR', message: membershipError.message },
+      };
+    }
+
+    if (!membership || membership.role !== 'admin') {
+      console.error('[GroupService] Permission denied: Current user is not admin', { membership });
+      return {
+        success: false,
+        error: { type: 'PERMISSION_DENIED', message: 'Only admins can change member roles' },
+      };
+    }
+
+    // Update role
+    console.log('[GroupService] Attempting to update role...');
+    const { data: updatedData, error: updateError } = await supabase
+      .from('group_members')
+      .update({ role: newRole })
+      .eq('group_id', groupId)
+      .eq('user_id', userId)
+      .select(); // Select to verify update
+
+    if (updateError) {
+      console.error('[GroupService] Update failed', updateError);
+      return {
+        success: false,
+        error: { type: 'NETWORK_ERROR', message: updateError.message },
+      };
+    }
+
+    if (!updatedData || updatedData.length === 0) {
+      console.error('[GroupService] Update returned no data. Possible RLS issue or user not found in group.');
+      return {
+        success: false,
+        error: { type: 'UNKNOWN_ERROR', message: 'Failed to update role. User might not be in the group.' },
+      };
+    }
+
+    console.log('[GroupService] Role updated successfully', updatedData);
+
+    // Get target user's profile for system message
+    const { data: targetUserProfile } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', userId)
+      .single();
+
+    // Get current user's profile for system message
+    const { data: currentUserProfile } = await supabase
+      .from('profiles')
+      .select('full_name, email')
+      .eq('id', user.id)
+      .single();
+
+    const targetUserName = targetUserProfile?.full_name || targetUserProfile?.email?.split('@')[0] || 'Someone';
+    const currentUserName = currentUserProfile?.full_name || currentUserProfile?.email?.split('@')[0] || 'Admin';
+
+    const action = newRole === 'admin' ? 'promoted to admin' : 'dismissed as admin';
+
+    // Send system message
+    await supabase
+      .from('group_messages')
+      .insert({
+        group_id: groupId,
+        sender_id: user.id,
+        content: `${currentUserName} ${action} ${targetUserName}`,
+        type: 'system',
+      });
+
+    return { success: true, data: undefined };
+  } catch (error) {
+    console.error('[GroupService] Unexpected error', error);
+    return {
+      success: false,
+      error: {
+        type: 'UNKNOWN_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+      },
+    };
+  }
+}
+
+/**
  * Search users by email for adding to group
  */
 export async function searchUsersForGroup(
@@ -423,7 +541,7 @@ export async function searchUsersForGroup(
 ): Promise<ServiceResult<Profile[]>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
@@ -482,7 +600,7 @@ export async function getGroupMessages(
 ): Promise<ServiceResult<GroupMessage[]>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
@@ -565,7 +683,7 @@ export async function sendGroupMessage(
 ): Promise<ServiceResult<{ id: string }>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
@@ -615,11 +733,11 @@ export async function sendGroupMessage(
 export async function updateGroup(
   supabase: SupabaseClient,
   groupId: string,
-  updates: { name?: string; description?: string }
+  updates: { name?: string; description?: string; avatar_url?: string }
 ): Promise<ServiceResult<void>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
@@ -678,7 +796,7 @@ export async function leaveGroup(
 ): Promise<ServiceResult<void>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
@@ -720,7 +838,7 @@ export async function markGroupAsRead(
 ): Promise<ServiceResult<void>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
@@ -731,12 +849,12 @@ export async function markGroupAsRead(
     // Reset unread count to 0
     const { error } = await supabase
       .from('group_unread_counts')
-      .upsert({ 
-        user_id: user.id, 
-        group_id: groupId, 
-        count: 0 
-      }, { 
-        onConflict: 'user_id,group_id' 
+      .upsert({
+        user_id: user.id,
+        group_id: groupId,
+        count: 0
+      }, {
+        onConflict: 'user_id,group_id'
       });
 
     if (error) {
@@ -882,7 +1000,7 @@ export async function updateGroupReadReceipt(
 ): Promise<ServiceResult<void>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
@@ -892,13 +1010,13 @@ export async function updateGroupReadReceipt(
 
     const { error } = await supabase
       .from('group_message_reads')
-      .upsert({ 
-        user_id: user.id, 
-        group_id: groupId, 
+      .upsert({
+        user_id: user.id,
+        group_id: groupId,
         last_read_message_id: messageId,
         last_read_at: new Date().toISOString(),
-      }, { 
-        onConflict: 'user_id,group_id' 
+      }, {
+        onConflict: 'user_id,group_id'
       });
 
     if (error) {
@@ -942,7 +1060,7 @@ export async function getGroupReadReceipts(
 ): Promise<ServiceResult<GroupReadReceipt[]>> {
   try {
     const user = await getCachedUser(supabase);
-    
+
     if (!user) {
       return {
         success: false,
