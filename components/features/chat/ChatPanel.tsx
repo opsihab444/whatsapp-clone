@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Search, MoreVertical } from 'lucide-react';
@@ -12,6 +12,8 @@ import { ContactInfoPanel } from '@/components/features/chat/ContactInfoPanel';
 import { useConversation } from '@/hooks/useConversation';
 import { useMarkAsRead } from '@/hooks/useMarkAsRead';
 import { useAppReady } from '@/hooks/useAppReady';
+import { createClient } from '@/lib/supabase/client';
+import { getBlockStatus } from '@/services/chat.service';
 
 interface ChatPanelProps {
   chatId: string;
@@ -19,12 +21,70 @@ interface ChatPanelProps {
 
 export function ChatPanel({ chatId }: ChatPanelProps) {
   const [isContactInfoOpen, setIsContactInfoOpen] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [amIBlocked, setAmIBlocked] = useState(false);
   const { conversation, isLoading: isLoadingConversations } = useConversation(chatId);
   const { data: currentUser } = useCurrentUser();
   const isAppReady = useAppReady();
+  const supabase = useMemo(() => createClient(), []);
 
   // Mark messages as read
   useMarkAsRead(chatId);
+
+  // Check block status when conversation loads
+  useEffect(() => {
+    if (conversation?.other_user?.id) {
+      getBlockStatus(supabase, conversation.other_user.id).then((result) => {
+        if (result.success) {
+          setIsBlocked(result.data.iBlocked);
+          setAmIBlocked(result.data.theyBlockedMe);
+        }
+      });
+    }
+  }, [conversation?.other_user?.id, supabase]);
+
+  // Realtime subscription for block status changes via WebSocket broadcast
+  useEffect(() => {
+    if (!currentUser?.id || !conversation?.other_user?.id) return;
+
+    // Use the existing typing channel for block status broadcasts (instant delivery)
+    const channel = supabase
+      .channel(`typing:${chatId}`)
+      .on('broadcast', { event: 'block_status' }, (payload) => {
+        const { blockerId, blockedId, isBlocked: blocked } = payload.payload;
+        
+        // If the other user blocked/unblocked me
+        if (blockerId === conversation.other_user.id && blockedId === currentUser.id) {
+          setAmIBlocked(blocked);
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser?.id, conversation?.other_user?.id, chatId, supabase]);
+
+  // Function to broadcast block status change to the other user
+  const broadcastBlockStatus = async (blocked: boolean) => {
+    if (!currentUser?.id || !conversation?.other_user?.id) return;
+    
+    await supabase.channel(`typing:${chatId}`).send({
+      type: 'broadcast',
+      event: 'block_status',
+      payload: {
+        blockerId: currentUser.id,
+        blockedId: conversation.other_user.id,
+        isBlocked: blocked,
+      },
+    });
+  };
+
+  // Handle block status change from ContactInfoPanel
+  const handleBlockStatusChange = (blocked: boolean) => {
+    setIsBlocked(blocked);
+    broadcastBlockStatus(blocked);
+  };
 
   // Conversation not found
   if (isAppReady && !conversation) {
@@ -110,6 +170,9 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
           conversationId={chatId}
           currentUserId={currentUser?.id}
           currentUserName={currentUser?.name}
+          isBlocked={isBlocked}
+          amIBlocked={amIBlocked}
+          otherUserName={conversation?.other_user?.full_name || conversation?.other_user?.email}
         />
       </div>
 
@@ -119,7 +182,9 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
           isOpen={isContactInfoOpen}
           onClose={() => setIsContactInfoOpen(false)}
           conversationId={chatId}
+          otherUserId={conversation.other_user.id}
           user={conversation.other_user}
+          onBlockStatusChange={handleBlockStatusChange}
         />
       )}
     </div>

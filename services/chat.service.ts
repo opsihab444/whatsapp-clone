@@ -551,3 +551,267 @@ export async function deleteConversation(
         };
     }
 }
+
+
+/**
+ * Block a user
+ */
+export async function blockUser(
+    supabase: SupabaseClient,
+    blockedUserId: string
+): Promise<ServiceResult<void>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        if (user.id === blockedUserId) {
+            return {
+                success: false,
+                error: {
+                    type: 'VALIDATION_ERROR',
+                    message: 'You cannot block yourself',
+                },
+            };
+        }
+
+        const { error } = await supabase
+            .from('blocked_users')
+            .insert({
+                blocker_id: user.id,
+                blocked_id: blockedUserId,
+            });
+
+        if (error) {
+            // Check if already blocked
+            if (error.code === '23505') {
+                return { success: true, data: undefined }; // Already blocked
+            }
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: undefined };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Unblock a user
+ */
+export async function unblockUser(
+    supabase: SupabaseClient,
+    blockedUserId: string
+): Promise<ServiceResult<void>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        const { error } = await supabase
+            .from('blocked_users')
+            .delete()
+            .eq('blocker_id', user.id)
+            .eq('blocked_id', blockedUserId);
+
+        if (error) {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: undefined };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Check if a user is blocked by current user
+ */
+export async function isUserBlocked(
+    supabase: SupabaseClient,
+    userId: string
+): Promise<ServiceResult<boolean>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        const { data, error } = await supabase
+            .from('blocked_users')
+            .select('blocker_id')
+            .eq('blocker_id', user.id)
+            .eq('blocked_id', userId)
+            .single();
+
+        if (error && error.code !== 'PGRST116') {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: !!data };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Check if current user is blocked by another user
+ */
+export async function amIBlocked(
+    supabase: SupabaseClient,
+    userId: string
+): Promise<ServiceResult<boolean>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        const { data, error } = await supabase
+            .from('blocked_users')
+            .select('blocker_id')
+            .eq('blocker_id', userId)
+            .eq('blocked_id', user.id)
+            .single();
+
+        if (error && error.code !== 'PGRST116') {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: !!data };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Get block status between two users (both directions)
+ */
+export async function getBlockStatus(
+    supabase: SupabaseClient,
+    otherUserId: string
+): Promise<ServiceResult<{ iBlocked: boolean; theyBlockedMe: boolean }>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        // Check both directions in parallel
+        const [iBlockedResult, theyBlockedResult] = await Promise.all([
+            supabase
+                .from('blocked_users')
+                .select('blocker_id')
+                .eq('blocker_id', user.id)
+                .eq('blocked_id', otherUserId)
+                .single(),
+            supabase
+                .from('blocked_users')
+                .select('blocker_id')
+                .eq('blocker_id', otherUserId)
+                .eq('blocked_id', user.id)
+                .single(),
+        ]);
+
+        return {
+            success: true,
+            data: {
+                iBlocked: !!iBlockedResult.data,
+                theyBlockedMe: !!theyBlockedResult.data,
+            },
+        };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
