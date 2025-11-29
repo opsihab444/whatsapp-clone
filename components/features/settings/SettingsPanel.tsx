@@ -5,6 +5,7 @@ import { useUIStore } from '@/store/ui.store';
 import { useCurrentUser } from '@/hooks/useCurrentUser';
 import { useQueryClient } from '@tanstack/react-query';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { ImageCropModal } from '@/components/ui/image-crop-modal';
 import { Users, Lock, X, Loader2, Image as ImageIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { createClient } from '@/lib/supabase/client';
@@ -19,7 +20,8 @@ export function SettingsPanel() {
   const [activeSection, setActiveSection] = useState<'profile' | 'password' | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [showCropModal, setShowCropModal] = useState(false);
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null);
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
@@ -57,19 +59,29 @@ export function SettingsPanel() {
       return;
     }
 
-    setAvatarFile(file);
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setAvatarPreview(reader.result as string);
-    };
-    reader.readAsDataURL(file);
+    setSelectedImageFile(file);
+    setShowCropModal(true);
     setErrorMessage(null);
+    
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleCropComplete = (croppedBlob: Blob) => {
+    setAvatarFile(new File([croppedBlob], 'avatar.jpg', { type: 'image/jpeg' }));
+    
+    // Create preview URL
+    const previewUrl = URL.createObjectURL(croppedBlob);
+    setAvatarPreview(previewUrl);
+    
+    setShowCropModal(false);
+    setSelectedImageFile(null);
   };
 
   const uploadAvatar = async (): Promise<string | null> => {
     if (!avatarFile) return null;
 
-    setIsUploadingAvatar(true);
     try {
       const formData = new FormData();
       formData.append('file', avatarFile);
@@ -86,8 +98,6 @@ export function SettingsPanel() {
     } catch (error) {
       console.error('Avatar upload error:', error);
       return null;
-    } finally {
-      setIsUploadingAvatar(false);
     }
   };
 
@@ -323,8 +333,8 @@ export function SettingsPanel() {
                   <Button type="button" variant="outline" onClick={() => setActiveSection(null)} className="flex-1">
                     Cancel
                   </Button>
-                  <Button type="submit" disabled={isUpdatingProfile || isUploadingAvatar} className="flex-1">
-                    {isUpdatingProfile || isUploadingAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
+                  <Button type="submit" disabled={isUpdatingProfile} className="flex-1">
+                    {isUpdatingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
                   </Button>
                 </div>
               </form>
@@ -402,6 +412,18 @@ export function SettingsPanel() {
           </div>
         </div>
       </div>
+
+      {/* Image Crop Modal */}
+      <ImageCropModal
+        isOpen={showCropModal}
+        onClose={() => {
+          setShowCropModal(false);
+          setSelectedImageFile(null);
+        }}
+        imageFile={selectedImageFile}
+        onCropComplete={handleCropComplete}
+        title="Drag the image to adjust"
+      />
     </div>
   );
 }

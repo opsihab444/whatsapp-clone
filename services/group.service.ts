@@ -9,6 +9,7 @@ export async function createGroup(
   supabase: SupabaseClient,
   name: string,
   memberIds: string[],
+  avatarUrl?: string,
   description?: string
 ): Promise<ServiceResult<Group>> {
   try {
@@ -27,6 +28,7 @@ export async function createGroup(
       .insert({
         name: name.trim(),
         description: description?.trim() || null,
+        avatar_url: avatarUrl || null,
         created_by: user.id,
       })
       .select()
