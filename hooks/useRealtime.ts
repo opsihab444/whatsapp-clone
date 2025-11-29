@@ -236,42 +236,52 @@ export function useRealtime() {
             // and our unread_counts realtime subscription will update the cache
           }
 
-          // Update conversation's last message and move to top
-          queryClient.setQueryData<Conversation[]>(['conversations'], (old) => {
-            if (!old) return old;
+          // Determine display content for sidebar (handle image messages)
+          const displayContent = newMessage.type === 'image' ? '📷 Photo' : newMessage.content;
 
-            // Determine display content for sidebar (handle image messages)
-            const displayContent = newMessage.type === 'image' ? '📷 Photo' : newMessage.content;
+          // Check if conversation exists in the current list
+          const currentConversations = queryClient.getQueryData<Conversation[]>(['conversations']);
+          const conversationExists = currentConversations?.some((conv) => conv.id === newMessage.conversation_id);
 
-            // Update the conversation with new last message info
-            const updated = old.map((conv) => {
-              if (conv.id !== newMessage.conversation_id) return conv;
+          // If conversation doesn't exist in list (was deleted by user), refetch immediately
+          if (!conversationExists) {
+            console.log('[Realtime] Conversation not in list, refetching conversations');
+            queryClient.refetchQueries({ queryKey: ['conversations'] });
+          } else {
+            // Update conversation's last message and move to top
+            queryClient.setQueryData<Conversation[]>(['conversations'], (old) => {
+              if (!old) return old;
 
-              // If this is our own message and content matches (optimistic update already done),
-              // keep the original timestamp to prevent time jump
-              const isOwnOptimisticUpdate =
-                user &&
-                newMessage.sender_id === user.id &&
-                conv.last_message_content === displayContent;
+              // Update the conversation with new last message info
+              const updated = old.map((conv) => {
+                if (conv.id !== newMessage.conversation_id) return conv;
 
-              return {
-                ...conv,
-                last_message_content: displayContent,
-                // Keep original timestamp if optimistic update already happened
-                last_message_time: isOwnOptimisticUpdate
-                  ? conv.last_message_time
-                  : newMessage.created_at,
-                last_message_sender_id: newMessage.sender_id,
-              };
+                // If this is our own message and content matches (optimistic update already done),
+                // keep the original timestamp to prevent time jump
+                const isOwnOptimisticUpdate =
+                  user &&
+                  newMessage.sender_id === user.id &&
+                  conv.last_message_content === displayContent;
+
+                return {
+                  ...conv,
+                  last_message_content: displayContent,
+                  // Keep original timestamp if optimistic update already happened
+                  last_message_time: isOwnOptimisticUpdate
+                    ? conv.last_message_time
+                    : newMessage.created_at,
+                  last_message_sender_id: newMessage.sender_id,
+                };
+              });
+
+              // Sort by last_message_time DESC (most recent first)
+              return updated.sort((a, b) => {
+                const timeA = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
+                const timeB = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
+                return timeB - timeA;
+              });
             });
-
-            // Sort by last_message_time DESC (most recent first)
-            return updated.sort((a, b) => {
-              const timeA = a.last_message_time ? new Date(a.last_message_time).getTime() : 0;
-              const timeB = b.last_message_time ? new Date(b.last_message_time).getTime() : 0;
-              return timeB - timeA;
-            });
-          });
+          }
         }
       )
       .on(

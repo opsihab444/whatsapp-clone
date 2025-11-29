@@ -118,6 +118,7 @@ export function ChatPanel({ chatId }: ChatPanelProps) {
         <ContactInfoPanel
           isOpen={isContactInfoOpen}
           onClose={() => setIsContactInfoOpen(false)}
+          conversationId={chatId}
           user={conversation.other_user}
         />
       )}

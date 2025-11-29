@@ -1,13 +1,20 @@
 'use client';
 
-import { X, Image as ImageIcon, ChevronRight } from 'lucide-react';
+import { useState } from 'react';
+import { X, Image as ImageIcon, ChevronRight, Trash2, Loader2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { createClient } from '@/lib/supabase/client';
+import { deleteConversation } from '@/services/chat.service';
+import { useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import { showSuccessToast, showErrorToast } from '@/lib/toast.utils';
 
 interface ContactInfoPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  conversationId: string;
   user: {
     full_name?: string | null;
     email: string;
@@ -15,8 +22,36 @@ interface ContactInfoPanelProps {
   };
 }
 
-export function ContactInfoPanel({ isOpen, onClose, user }: ContactInfoPanelProps) {
+export function ContactInfoPanel({ isOpen, onClose, conversationId, user }: ContactInfoPanelProps) {
   const displayName = user.full_name || user.email;
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const supabase = createClient();
+
+  const handleDeleteChat = async () => {
+    setIsDeleting(true);
+    const result = await deleteConversation(supabase, conversationId);
+    
+    if (result.success) {
+      // Remove from cache
+      queryClient.setQueryData(['conversations'], (old: any) => {
+        if (!old) return old;
+        return old.filter((conv: any) => conv.id !== conversationId);
+      });
+      queryClient.removeQueries({ queryKey: ['messages', conversationId] });
+      
+      showSuccessToast('Chat deleted successfully');
+      onClose();
+      router.push('/');
+    } else {
+      showErrorToast(result.error.message);
+    }
+    
+    setIsDeleting(false);
+    setShowDeleteConfirm(false);
+  };
 
   return (
     <>
@@ -79,7 +114,55 @@ export function ContactInfoPanel({ isOpen, onClose, user }: ContactInfoPanelProp
               </div>
             </div>
           </div>
+
+          {/* Delete Chat Section */}
+          <div className="mt-2 border-t border-border/50">
+            <button 
+              onClick={() => setShowDeleteConfirm(true)}
+              className="flex items-center gap-6 px-8 py-4 w-full hover:bg-destructive/10 cursor-pointer transition-colors text-left"
+            >
+              <Trash2 className="h-5 w-5 text-destructive" />
+              <span className="text-destructive text-[15px]">Delete chat</span>
+            </button>
+          </div>
         </ScrollArea>
+
+        {/* Delete Confirmation Modal - Full Screen */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100]">
+            <div className="bg-background rounded-xl p-6 mx-4 max-w-md w-full shadow-2xl border border-border/50">
+              <h3 className="text-xl font-semibold text-foreground mb-3">Delete chat?</h3>
+              <p className="text-muted-foreground text-sm mb-6 leading-relaxed">
+                Messages will be removed from this device. {displayName} will still be able to see the chat history.
+              </p>
+              <div className="flex gap-3 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={isDeleting}
+                  className="px-6"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleDeleteChat}
+                  disabled={isDeleting}
+                  className="px-6"
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    'Delete'
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

@@ -52,8 +52,33 @@ export async function getConversations(
             return { success: true, data: [] };
         }
 
+        // Get deleted conversations for this user
+        const { data: deletedConvs } = await supabase
+            .from('deleted_conversations')
+            .select('conversation_id, deleted_at')
+            .eq('user_id', user.id);
+
+        const deletedMap = new Map(
+            deletedConvs?.map((d) => [d.conversation_id, new Date(d.deleted_at)]) || []
+        );
+
+        // Filter out deleted conversations (or those with no new messages since deletion)
+        const activeConversations = conversations.filter((conv) => {
+            const deletedAt = deletedMap.get(conv.id);
+            if (!deletedAt) return true; // Not deleted
+            // Show if there's a new message after deletion
+            if (conv.last_message_time && new Date(conv.last_message_time) > deletedAt) {
+                return true;
+            }
+            return false;
+        });
+
+        if (activeConversations.length === 0) {
+            return { success: true, data: [] };
+        }
+
         // Get other user IDs
-        const otherUserIds = conversations.map((conv) =>
+        const otherUserIds = activeConversations.map((conv) =>
             conv.participant_1_id === user.id ? conv.participant_2_id : conv.participant_1_id
         );
 
@@ -67,7 +92,7 @@ export async function getConversations(
                 .from('unread_counts')
                 .select('conversation_id, count')
                 .eq('user_id', user.id)
-                .in('conversation_id', conversations.map((c) => c.id))
+                .in('conversation_id', activeConversations.map((c) => c.id))
         ]);
 
         const { data: profiles, error: profileError } = profilesResult;
@@ -98,7 +123,7 @@ export async function getConversations(
         const unreadMap = new Map(unreadCounts?.map((u) => [u.conversation_id, u.count]) || []);
 
         // Combine data
-        const result: Conversation[] = conversations.map((conv) => {
+        const result: Conversation[] = activeConversations.map((conv) => {
             const otherUserId = conv.participant_1_id === user.id ? conv.participant_2_id : conv.participant_1_id;
             const otherUser = profileMap.get(otherUserId);
 
@@ -438,4 +463,91 @@ export function getFavorites(): string[] {
 export function isFavorite(id: string): boolean {
     const favorites = getFavorites();
     return favorites.includes(id);
+}
+
+/**
+ * Delete a conversation for the current user only
+ * The other user will still see the conversation and messages
+ * If the other user messages again, it will appear as a new conversation for this user
+ */
+export async function deleteConversation(
+    supabase: SupabaseClient,
+    conversationId: string
+): Promise<ServiceResult<void>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        // Verify user is a participant in this conversation
+        const { data: conversation, error: convError } = await supabase
+            .from('conversations')
+            .select('id, participant_1_id, participant_2_id')
+            .eq('id', conversationId)
+            .single();
+
+        if (convError || !conversation) {
+            return {
+                success: false,
+                error: {
+                    type: 'NOT_FOUND',
+                    message: 'Conversation not found',
+                },
+            };
+        }
+
+        const isParticipant = 
+            conversation.participant_1_id === user.id || 
+            conversation.participant_2_id === user.id;
+
+        if (!isParticipant) {
+            return {
+                success: false,
+                error: {
+                    type: 'PERMISSION_DENIED',
+                    message: 'You are not authorized to delete this conversation',
+                },
+            };
+        }
+
+        // Mark conversation as deleted for this user only
+        // Insert into deleted_conversations table
+        const { error: deleteError } = await supabase
+            .from('deleted_conversations')
+            .upsert({
+                user_id: user.id,
+                conversation_id: conversationId,
+                deleted_at: new Date().toISOString(),
+            }, {
+                onConflict: 'user_id,conversation_id',
+            });
+
+        if (deleteError) {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: deleteError.message,
+                },
+            };
+        }
+
+        return { success: true, data: undefined };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
 }

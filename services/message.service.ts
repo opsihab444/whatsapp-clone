@@ -4,8 +4,7 @@ import { getCachedUser } from '@/lib/supabase/cached-auth';
 
 /**
  * Get messages for a conversation with pagination
- * Note: Auth check removed - Supabase RLS handles authorization
- * This makes the query faster by avoiding an extra auth call
+ * Filters out messages sent before user deleted the conversation
  */
 export async function getMessages(
   supabase: SupabaseClient,
@@ -14,9 +13,27 @@ export async function getMessages(
   limit: number = 50
 ): Promise<ServiceResult<Message[]>> {
   try {
+    // Get current user to check for deleted conversation
+    const user = await getCachedUser(supabase);
+    
+    // Check if user has deleted this conversation
+    let deletedAt: Date | null = null;
+    if (user) {
+      const { data: deletedConv } = await supabase
+        .from('deleted_conversations')
+        .select('deleted_at')
+        .eq('user_id', user.id)
+        .eq('conversation_id', conversationId)
+        .single();
+      
+      if (deletedConv) {
+        deletedAt = new Date(deletedConv.deleted_at);
+      }
+    }
+
     // Query messages with sender profile
     // RLS policy ensures only conversation participants can read messages
-    const { data: messages, error: messagesError } = await supabase
+    let query = supabase
       .from('messages')
       .select(`
         *,
@@ -29,8 +46,14 @@ export async function getMessages(
         )
       `)
       .eq('conversation_id', conversationId)
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+      .order('created_at', { ascending: false });
+
+    // If user deleted conversation, only show messages after deletion
+    if (deletedAt) {
+      query = query.gt('created_at', deletedAt.toISOString());
+    }
+
+    const { data: messages, error: messagesError } = await query.range(offset, offset + limit - 1);
 
     if (messagesError) {
       return {
