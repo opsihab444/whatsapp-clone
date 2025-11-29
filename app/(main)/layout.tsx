@@ -51,11 +51,19 @@ export default function MainLayout({
     refetch: refetchChats
   } = useChatList(searchQuery);
 
-  // Merge and sort items
+  // Merge and sort items - pinned first, then by time
   const mergedItems = useMemo(() => {
     const allItems: (Conversation | GroupConversation)[] = [...(groups || []), ...(conversations || [])];
 
     return allItems.sort((a, b) => {
+      // Pinned items always come first
+      const aPinned = 'is_pinned' in a && a.is_pinned;
+      const bPinned = 'is_pinned' in b && b.is_pinned;
+      
+      if (aPinned && !bPinned) return -1;
+      if (!aPinned && bPinned) return 1;
+
+      // Then sort by last_message_time
       let timeA = 0;
       if (a.last_message_time) {
         timeA = new Date(a.last_message_time).getTime();

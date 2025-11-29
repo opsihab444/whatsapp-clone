@@ -22,6 +22,7 @@ export interface Conversation {
   other_user: Profile;
   unread_count: number;
   is_favorite?: boolean;
+  is_pinned?: boolean;
 }
 
 export interface Message {

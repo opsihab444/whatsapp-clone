@@ -52,8 +52,33 @@ export async function getConversations(
             return { success: true, data: [] };
         }
 
+        // Get deleted conversations for this user
+        const { data: deletedConvs } = await supabase
+            .from('deleted_conversations')
+            .select('conversation_id, deleted_at')
+            .eq('user_id', user.id);
+
+        const deletedMap = new Map(
+            deletedConvs?.map((d) => [d.conversation_id, new Date(d.deleted_at)]) || []
+        );
+
+        // Filter out deleted conversations (or those with no new messages since deletion)
+        const activeConversations = conversations.filter((conv) => {
+            const deletedAt = deletedMap.get(conv.id);
+            if (!deletedAt) return true; // Not deleted
+            // Show if there's a new message after deletion
+            if (conv.last_message_time && new Date(conv.last_message_time) > deletedAt) {
+                return true;
+            }
+            return false;
+        });
+
+        if (activeConversations.length === 0) {
+            return { success: true, data: [] };
+        }
+
         // Get other user IDs
-        const otherUserIds = conversations.map((conv) =>
+        const otherUserIds = activeConversations.map((conv) =>
             conv.participant_1_id === user.id ? conv.participant_2_id : conv.participant_1_id
         );
 
@@ -67,7 +92,7 @@ export async function getConversations(
                 .from('unread_counts')
                 .select('conversation_id, count')
                 .eq('user_id', user.id)
-                .in('conversation_id', conversations.map((c) => c.id))
+                .in('conversation_id', activeConversations.map((c) => c.id))
         ]);
 
         const { data: profiles, error: profileError } = profilesResult;
@@ -98,7 +123,7 @@ export async function getConversations(
         const unreadMap = new Map(unreadCounts?.map((u) => [u.conversation_id, u.count]) || []);
 
         // Combine data
-        const result: Conversation[] = conversations.map((conv) => {
+        const result: Conversation[] = activeConversations.map((conv) => {
             const otherUserId = conv.participant_1_id === user.id ? conv.participant_2_id : conv.participant_1_id;
             const otherUser = profileMap.get(otherUserId);
 
@@ -388,54 +413,662 @@ export async function getOrCreateConversation(
 }
 
 /**
- * Toggle favorite status for a conversation or group
- * Uses localStorage for persistence since backend support is pending
+ * Add conversation to favorites (database)
  */
-export function toggleFavorite(id: string): boolean {
+export async function addToFavorites(
+    supabase: SupabaseClient,
+    conversationId: string
+): Promise<ServiceResult<void>> {
     try {
-        const favorites = getFavorites();
-        const isFavorite = favorites.includes(id);
+        const user = await getCachedUser(supabase);
 
-        let newFavorites: string[];
-        if (isFavorite) {
-            newFavorites = favorites.filter(favId => favId !== id);
-        } else {
-            newFavorites = [...favorites, id];
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
         }
 
-        localStorage.setItem('whatsapp_favorites', JSON.stringify(newFavorites));
+        const { error } = await supabase
+            .from('favorite_conversations')
+            .insert({
+                user_id: user.id,
+                conversation_id: conversationId,
+            });
 
-        // Dispatch a custom event so components can react immediately
-        window.dispatchEvent(new Event('favorites-updated'));
+        if (error) {
+            if (error.code === '23505') {
+                return { success: true, data: undefined }; // Already favorite
+            }
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
 
-        return !isFavorite;
+        return { success: true, data: undefined };
     } catch (error) {
-        console.error('Error toggling favorite:', error);
-        return false;
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
     }
 }
 
 /**
- * Get all favorite IDs from localStorage
+ * Remove conversation from favorites (database)
  */
-export function getFavorites(): string[] {
+export async function removeFromFavorites(
+    supabase: SupabaseClient,
+    conversationId: string
+): Promise<ServiceResult<void>> {
     try {
-        if (typeof window === 'undefined') return [];
+        const user = await getCachedUser(supabase);
 
-        const stored = localStorage.getItem('whatsapp_favorites');
-        if (!stored) return [];
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
 
-        return JSON.parse(stored);
+        const { error } = await supabase
+            .from('favorite_conversations')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('conversation_id', conversationId);
+
+        if (error) {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: undefined };
     } catch (error) {
-        console.error('Error getting favorites:', error);
-        return [];
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
     }
 }
 
 /**
- * Check if a specific ID is a favorite
+ * Get all favorite conversation IDs (database)
  */
-export function isFavorite(id: string): boolean {
-    const favorites = getFavorites();
-    return favorites.includes(id);
+export async function getFavoriteConversations(
+    supabase: SupabaseClient
+): Promise<ServiceResult<string[]>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        const { data, error } = await supabase
+            .from('favorite_conversations')
+            .select('conversation_id')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
+
+        if (error) {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: data?.map(f => f.conversation_id) || [] };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Pin a conversation (database)
+ */
+export async function pinConversation(
+    supabase: SupabaseClient,
+    conversationId: string
+): Promise<ServiceResult<void>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        // Check current pinned count (max 3)
+        const { count } = await supabase
+            .from('pinned_conversations')
+            .select('*', { count: 'exact', head: true })
+            .eq('user_id', user.id);
+
+        if (count && count >= 3) {
+            return {
+                success: false,
+                error: {
+                    type: 'VALIDATION_ERROR',
+                    message: 'Maximum 3 chats can be pinned',
+                },
+            };
+        }
+
+        const { error } = await supabase
+            .from('pinned_conversations')
+            .insert({
+                user_id: user.id,
+                conversation_id: conversationId,
+            });
+
+        if (error) {
+            if (error.code === '23505') {
+                return { success: true, data: undefined }; // Already pinned
+            }
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: undefined };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Unpin a conversation (database)
+ */
+export async function unpinConversation(
+    supabase: SupabaseClient,
+    conversationId: string
+): Promise<ServiceResult<void>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        const { error } = await supabase
+            .from('pinned_conversations')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('conversation_id', conversationId);
+
+        if (error) {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: undefined };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Get all pinned conversation IDs (database)
+ */
+export async function getPinnedConversations(
+    supabase: SupabaseClient
+): Promise<ServiceResult<string[]>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        const { data, error } = await supabase
+            .from('pinned_conversations')
+            .select('conversation_id')
+            .eq('user_id', user.id)
+            .order('pinned_at', { ascending: true });
+
+        if (error) {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: data?.map(p => p.conversation_id) || [] };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Delete a conversation for the current user only
+ * The other user will still see the conversation and messages
+ * If the other user messages again, it will appear as a new conversation for this user
+ */
+export async function deleteConversation(
+    supabase: SupabaseClient,
+    conversationId: string
+): Promise<ServiceResult<void>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        // Verify user is a participant in this conversation
+        const { data: conversation, error: convError } = await supabase
+            .from('conversations')
+            .select('id, participant_1_id, participant_2_id')
+            .eq('id', conversationId)
+            .single();
+
+        if (convError || !conversation) {
+            return {
+                success: false,
+                error: {
+                    type: 'NOT_FOUND',
+                    message: 'Conversation not found',
+                },
+            };
+        }
+
+        const isParticipant = 
+            conversation.participant_1_id === user.id || 
+            conversation.participant_2_id === user.id;
+
+        if (!isParticipant) {
+            return {
+                success: false,
+                error: {
+                    type: 'PERMISSION_DENIED',
+                    message: 'You are not authorized to delete this conversation',
+                },
+            };
+        }
+
+        // Mark conversation as deleted for this user only
+        // Insert into deleted_conversations table
+        const { error: deleteError } = await supabase
+            .from('deleted_conversations')
+            .upsert({
+                user_id: user.id,
+                conversation_id: conversationId,
+                deleted_at: new Date().toISOString(),
+            }, {
+                onConflict: 'user_id,conversation_id',
+            });
+
+        if (deleteError) {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: deleteError.message,
+                },
+            };
+        }
+
+        return { success: true, data: undefined };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+
+/**
+ * Block a user
+ */
+export async function blockUser(
+    supabase: SupabaseClient,
+    blockedUserId: string
+): Promise<ServiceResult<void>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        if (user.id === blockedUserId) {
+            return {
+                success: false,
+                error: {
+                    type: 'VALIDATION_ERROR',
+                    message: 'You cannot block yourself',
+                },
+            };
+        }
+
+        const { error } = await supabase
+            .from('blocked_users')
+            .insert({
+                blocker_id: user.id,
+                blocked_id: blockedUserId,
+            });
+
+        if (error) {
+            // Check if already blocked
+            if (error.code === '23505') {
+                return { success: true, data: undefined }; // Already blocked
+            }
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: undefined };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Unblock a user
+ */
+export async function unblockUser(
+    supabase: SupabaseClient,
+    blockedUserId: string
+): Promise<ServiceResult<void>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        const { error } = await supabase
+            .from('blocked_users')
+            .delete()
+            .eq('blocker_id', user.id)
+            .eq('blocked_id', blockedUserId);
+
+        if (error) {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: undefined };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Check if a user is blocked by current user
+ */
+export async function isUserBlocked(
+    supabase: SupabaseClient,
+    userId: string
+): Promise<ServiceResult<boolean>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        const { data, error } = await supabase
+            .from('blocked_users')
+            .select('blocker_id')
+            .eq('blocker_id', user.id)
+            .eq('blocked_id', userId)
+            .single();
+
+        if (error && error.code !== 'PGRST116') {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: !!data };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Check if current user is blocked by another user
+ */
+export async function amIBlocked(
+    supabase: SupabaseClient,
+    userId: string
+): Promise<ServiceResult<boolean>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        const { data, error } = await supabase
+            .from('blocked_users')
+            .select('blocker_id')
+            .eq('blocker_id', userId)
+            .eq('blocked_id', user.id)
+            .single();
+
+        if (error && error.code !== 'PGRST116') {
+            return {
+                success: false,
+                error: {
+                    type: 'NETWORK_ERROR',
+                    message: error.message,
+                },
+            };
+        }
+
+        return { success: true, data: !!data };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
+}
+
+/**
+ * Get block status between two users (both directions)
+ */
+export async function getBlockStatus(
+    supabase: SupabaseClient,
+    otherUserId: string
+): Promise<ServiceResult<{ iBlocked: boolean; theyBlockedMe: boolean }>> {
+    try {
+        const user = await getCachedUser(supabase);
+
+        if (!user) {
+            return {
+                success: false,
+                error: {
+                    type: 'AUTH_ERROR',
+                    message: 'User not authenticated',
+                },
+            };
+        }
+
+        // Check both directions in parallel
+        const [iBlockedResult, theyBlockedResult] = await Promise.all([
+            supabase
+                .from('blocked_users')
+                .select('blocker_id')
+                .eq('blocker_id', user.id)
+                .eq('blocked_id', otherUserId)
+                .single(),
+            supabase
+                .from('blocked_users')
+                .select('blocker_id')
+                .eq('blocker_id', otherUserId)
+                .eq('blocked_id', user.id)
+                .single(),
+        ]);
+
+        return {
+            success: true,
+            data: {
+                iBlocked: !!iBlockedResult.data,
+                theyBlockedMe: !!theyBlockedResult.data,
+            },
+        };
+    } catch (error) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: error instanceof Error ? error.message : 'Unknown error occurred',
+            },
+        };
+    }
 }

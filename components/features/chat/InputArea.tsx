@@ -15,9 +15,12 @@ interface InputAreaProps {
   conversationId: string;
   currentUserId?: string;
   currentUserName?: string;
+  isBlocked?: boolean;
+  amIBlocked?: boolean;
+  otherUserName?: string;
 }
 
-function InputAreaComponent({ conversationId, currentUserId, currentUserName }: InputAreaProps) {
+function InputAreaComponent({ conversationId, currentUserId, currentUserName, isBlocked, amIBlocked, otherUserName }: InputAreaProps) {
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -582,6 +585,20 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
     }
   };
 
+  // Show blocked message instead of input
+  if (isBlocked || amIBlocked) {
+    return (
+      <div className="px-4 py-4 z-20 min-h-[80px] flex items-center justify-center bg-transparent">
+        <div className="text-center text-muted-foreground text-sm px-4 py-3 bg-secondary/50 rounded-xl">
+          {isBlocked 
+            ? `You blocked ${otherUserName || 'this user'}. Unblock to send messages.`
+            : `You can't send messages to ${otherUserName || 'this user'}.`
+          }
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="px-4 py-4 z-20 min-h-[80px] flex flex-col bg-transparent" role="form" aria-label="Message input">
       {/* Reply Preview */}
@@ -727,7 +744,10 @@ export const InputArea = React.memo(InputAreaComponent, (prevProps, nextProps) =
   return (
     prevProps.conversationId === nextProps.conversationId &&
     prevProps.currentUserId === nextProps.currentUserId &&
-    prevProps.currentUserName === nextProps.currentUserName
+    prevProps.currentUserName === nextProps.currentUserName &&
+    prevProps.isBlocked === nextProps.isBlocked &&
+    prevProps.amIBlocked === nextProps.amIBlocked &&
+    prevProps.otherUserName === nextProps.otherUserName
   );
 });
 

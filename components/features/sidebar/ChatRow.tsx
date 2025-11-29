@@ -1,12 +1,18 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Conversation } from '@/types';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { cn, formatConversationTime, truncate } from '@/lib/utils';
 import { useUIStore } from '@/store/ui.store';
-import { toggleFavorite } from '@/services/chat.service';
+import { deleteConversation, blockUser, pinConversation, unpinConversation, addToFavorites, removeFromFavorites } from '@/services/chat.service';
+import { createClient } from '@/lib/supabase/client';
+import { useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import { showSuccessToast, showErrorToast } from '@/lib/toast.utils';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,12 +25,14 @@ import {
   Archive,
   BellOff,
   Pin,
+  PinOff,
   Tag,
   MessageSquare,
   Heart,
   HeartOff,
   Trash2,
-  Ban
+  Ban,
+  Loader2
 } from 'lucide-react';
 
 interface ChatRowProps {
@@ -78,6 +86,17 @@ function ChatRowComponent({
   currentUserId,
 }: ChatRowProps) {
   const { other_user, last_message_content, last_message_time, last_message_sender_id, unread_count } = conversation;
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showBlockConfirm, setShowBlockConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isBlocking, setIsBlocking] = useState(false);
+  const [isPinning, setIsPinning] = useState(false);
+  const supabase = createClient();
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  
+  // Get pinned status from conversation prop (comes from useChatList)
+  const pinned = conversation.is_pinned || false;
 
   // Generate initials for avatar fallback
   const initials = other_user.full_name
@@ -143,9 +162,46 @@ function ChatRowComponent({
     console.log('Mute chat', conversation.id);
   };
 
-  const handlePin = (e: React.MouseEvent) => {
+  const handlePin = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log('Pin chat', conversation.id);
+    if (isPinning) return;
+    
+    setIsPinning(true);
+    const newPinnedState = !pinned;
+    
+    // Optimistic update - instantly update pinned-conversations cache
+    queryClient.setQueryData(['pinned-conversations'], (old: string[] | undefined) => {
+      if (!old) return newPinnedState ? [conversation.id] : [];
+      if (newPinnedState) {
+        if (old.length >= 3) return old; // Max 3
+        return [...old, conversation.id];
+      } else {
+        return old.filter(id => id !== conversation.id);
+      }
+    });
+
+    // Database update
+    if (pinned) {
+      const result = await unpinConversation(supabase, conversation.id);
+      if (result.success) {
+        showSuccessToast('Chat unpinned');
+      } else {
+        // Revert on error
+        queryClient.invalidateQueries({ queryKey: ['pinned-conversations'] });
+        showErrorToast(result.error.message);
+      }
+    } else {
+      const result = await pinConversation(supabase, conversation.id);
+      if (result.success) {
+        showSuccessToast('Chat pinned');
+      } else {
+        // Revert on error
+        queryClient.invalidateQueries({ queryKey: ['pinned-conversations'] });
+        showErrorToast(result.error.message);
+      }
+    }
+    
+    setIsPinning(false);
   };
 
   const handleLabel = (e: React.MouseEvent) => {
@@ -158,19 +214,97 @@ function ChatRowComponent({
     console.log('Mark as unread', conversation.id);
   };
 
-  const handleFavorite = (e: React.MouseEvent) => {
+  const handleFavorite = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    toggleFavorite(conversation.id);
+    
+    const isFavorite = conversation.is_favorite || false;
+    
+    // Optimistic update
+    queryClient.setQueryData(['favorite-conversations'], (old: string[] | undefined) => {
+      if (!old) return isFavorite ? [] : [conversation.id];
+      if (isFavorite) {
+        return old.filter(id => id !== conversation.id);
+      } else {
+        return [...old, conversation.id];
+      }
+    });
+
+    // Database update
+    if (isFavorite) {
+      const result = await removeFromFavorites(supabase, conversation.id);
+      if (result.success) {
+        showSuccessToast('Removed from favorites');
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['favorite-conversations'] });
+        showErrorToast(result.error.message);
+      }
+    } else {
+      const result = await addToFavorites(supabase, conversation.id);
+      if (result.success) {
+        showSuccessToast('Added to favorites');
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['favorite-conversations'] });
+        showErrorToast(result.error.message);
+      }
+    }
+    
+    window.dispatchEvent(new Event('favorites-updated'));
   };
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log('Delete chat', conversation.id);
+    setShowDeleteConfirm(true);
   };
 
   const handleBlock = (e: React.MouseEvent) => {
     e.stopPropagation();
-    console.log('Block user', conversation.id);
+    setShowBlockConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    setIsDeleting(true);
+    const result = await deleteConversation(supabase, conversation.id);
+    
+    if (result.success) {
+      queryClient.setQueryData(['conversations'], (old: Conversation[] | undefined) => {
+        if (!old) return old;
+        return old.filter((conv) => conv.id !== conversation.id);
+      });
+      queryClient.removeQueries({ queryKey: ['messages', conversation.id] });
+      showSuccessToast('Chat deleted');
+      if (isActive) {
+        router.push('/');
+      }
+    } else {
+      showErrorToast(result.error.message);
+    }
+    
+    setIsDeleting(false);
+    setShowDeleteConfirm(false);
+  };
+
+  const confirmBlock = async () => {
+    setIsBlocking(true);
+    const result = await blockUser(supabase, other_user.id);
+    
+    if (result.success) {
+      showSuccessToast(`${displayName} has been blocked`);
+      // Broadcast block status to the other user
+      await supabase.channel(`typing:${conversation.id}`).send({
+        type: 'broadcast',
+        event: 'block_status',
+        payload: {
+          blockerId: currentUserId,
+          blockedId: other_user.id,
+          isBlocked: true,
+        },
+      });
+    } else {
+      showErrorToast(result.error.message);
+    }
+    
+    setIsBlocking(false);
+    setShowBlockConfirm(false);
   };
 
   return (
@@ -207,6 +341,7 @@ function ChatRowComponent({
       <div className="flex-1 min-w-0 flex flex-col justify-center h-full pr-2">
         <div className="flex items-center justify-between mb-1">
           <p className="text-[18px] text-foreground truncate leading-6 font-medium flex items-center gap-1">
+            {pinned && <Pin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
             {highlightText(displayName)}
           </p>
           {timestamp && (
@@ -238,8 +373,12 @@ function ChatRowComponent({
                   <span>Mute notifications</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handlePin}>
-                  <Pin className="mr-2 h-4 w-4 text-muted-foreground" />
-                  <span>Pin chat</span>
+                  {pinned ? (
+                    <PinOff className="mr-2 h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Pin className="mr-2 h-4 w-4 text-muted-foreground" />
+                  )}
+                  <span>{pinned ? 'Unpin chat' : 'Pin chat'}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleLabel}>
                   <Tag className="mr-2 h-4 w-4 text-muted-foreground" />
@@ -292,6 +431,112 @@ function ChatRowComponent({
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Modal - Using Portal for full screen */}
+      {showDeleteConfirm && createPortal(
+        <div 
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200]"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowDeleteConfirm(false);
+          }}
+        >
+          <div 
+            className="bg-background rounded-xl p-6 mx-4 max-w-md w-full shadow-2xl border border-border/50 animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-semibold text-foreground mb-3">Delete chat?</h3>
+            <p className="text-muted-foreground text-sm mb-6 leading-relaxed">
+              Messages will be removed from this device. {displayName} will still be able to see the chat history.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDeleteConfirm(false);
+                }}
+                disabled={isDeleting}
+                className="px-6"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  confirmDelete();
+                }}
+                disabled={isDeleting}
+                className="px-6"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete'
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Block Confirmation Modal - Using Portal for full screen */}
+      {showBlockConfirm && createPortal(
+        <div 
+          className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200]"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowBlockConfirm(false);
+          }}
+        >
+          <div 
+            className="bg-background rounded-xl p-6 mx-4 max-w-md w-full shadow-2xl border border-border/50 animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-xl font-semibold text-foreground mb-3">Block {displayName}?</h3>
+            <p className="text-muted-foreground text-sm mb-6 leading-relaxed">
+              Blocked contacts will no longer be able to send you messages. You won&apos;t receive any messages from {displayName}.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowBlockConfirm(false);
+                }}
+                disabled={isBlocking}
+                className="px-6"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  confirmBlock();
+                }}
+                disabled={isBlocking}
+                className="px-6"
+              >
+                {isBlocking ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Blocking...
+                  </>
+                ) : (
+                  'Block'
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
