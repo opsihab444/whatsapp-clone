@@ -6,7 +6,7 @@ import { useAppReady } from '@/hooks/useAppReady';
 import { useGroupReadReceipts } from '@/hooks/useGroupReadReceipts';
 import { TypingIndicator } from '@/components/features/chat/TypingIndicator';
 import { SeenAvatars } from '@/components/features/group/SeenAvatars';
-import { Loader2, ArrowDown, RefreshCw, Users, ChevronDown, Edit, Trash2, Copy, Info, Reply } from 'lucide-react';
+import { Loader2, ArrowDown, RefreshCw, Users, ChevronDown, Edit, Trash2, Copy, Info, Reply, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useUIStore } from '@/store/ui.store';
 import { cn } from '@/lib/utils';
@@ -15,6 +15,8 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { GroupMember, GroupMessage } from '@/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useMarkGroupAsRead } from '@/hooks/useMarkGroupAsRead';
+import { ImagePreviewModal } from '@/components/features/chat/ImagePreviewModal';
 
 // Global cache for blob URLs (for sender's optimistic UI)
 const blobUrlCache = new Map<string, string>();
@@ -55,6 +57,7 @@ function GroupImageMessageContent({
   width,
   height,
   isLatest,
+  onClick,
 }: {
   mediaUrl: string;
   blobUrl?: string | null;
@@ -64,6 +67,7 @@ function GroupImageMessageContent({
   width?: number | null;
   height?: number | null;
   isLatest?: boolean;
+  onClick?: () => void;
 }) {
   const isBlobUrl = mediaUrl.startsWith('blob:');
   const cachedBlobUrl = blobUrlCache.get(messageId) || blobUrlCache.get(mediaUrl) || blobUrl;
@@ -149,9 +153,13 @@ function GroupImageMessageContent({
   return (
     <div
       ref={containerRef}
-      className="relative overflow-hidden rounded-lg bg-[#3a3b3c]"
+      className="relative overflow-hidden rounded-lg bg-[#3a3b3c] cursor-pointer group/image"
       style={{ width: displayWidth, height: displayHeight }}
+      onClick={onClick}
     >
+      {/* Hover overlay */}
+      <div className="absolute inset-0 bg-black/0 group-hover/image:bg-black/10 transition-colors z-10" />
+
       {/* Only load image when visible or is latest */}
       {isVisible && (
         <>
@@ -211,7 +219,7 @@ function GroupImageMessageContent({
       )}
 
       {/* Timestamp overlay on image */}
-      <div className="absolute bottom-2 right-2 bg-black/50 rounded px-1.5 py-0.5">
+      <div className="absolute bottom-2 right-2 bg-black/50 rounded px-1.5 py-0.5 z-20">
         <time className="text-[11px] text-white" dateTime={createdAt}>
           {formatMessageTimeDisplay(createdAt)}
         </time>
@@ -270,6 +278,26 @@ function MessageDropdown({ message, isOwnMessage, groupId }: MessageDropdownProp
     setIsMenuOpen(false);
   };
 
+  const handleDownload = async () => {
+    if (!message.media_url) return;
+    try {
+      const response = await fetch(message.media_url);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `whatsapp-image-${Date.now()}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Download failed:', error);
+      window.open(message.media_url, '_blank');
+    }
+    setIsMenuOpen(false);
+  };
+
   return (
     <div
       ref={menuRef}
@@ -319,6 +347,18 @@ function MessageDropdown({ message, isOwnMessage, groupId }: MessageDropdownProp
             <Info className="mr-4 h-4 w-4 text-[#aebac1]" />
             Message info
           </div>
+
+          {/* Download - only for images */}
+          {message.type === 'image' && message.media_url && (
+            <div
+              role="menuitem"
+              className="flex cursor-pointer items-center px-4 py-2.5 text-sm text-[#e9edef] hover:bg-[#182229] transition-colors"
+              onClick={handleDownload}
+            >
+              <Download className="mr-4 h-4 w-4 text-[#aebac1]" />
+              Download
+            </div>
+          )}
 
           {/* Copy */}
           {message.content && (
@@ -402,9 +442,13 @@ function GroupMessageListComponent({ groupId, currentUserId, members }: GroupMes
     refetch
   } = useGroupMessages(groupId);
 
+  // Mark group as read
+  useMarkGroupAsRead(groupId);
+
   const isAppReady = useAppReady();
   const parentRef = useRef<HTMLDivElement>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [previewImage, setPreviewImage] = useState<{ url: string; sender: string; time: string } | null>(null);
 
   // Get typing status - use multiple typing users for groups
   const typingUser = useUIStore((state) => state.typingUsers.get(groupId));
@@ -798,8 +842,8 @@ function GroupMessageListComponent({ groupId, currentUserId, members }: GroupMes
                             'rounded-lg shadow-[0_1px_0.5px_rgba(11,20,26,0.13)] relative text-[15px] leading-[22px] group/bubble',
                             message.type === 'image' ? 'p-1' : 'px-3 py-2',
                             isOwn
-                              ? cn('bg-chat-bubble-out text-white', showTail && 'rounded-tr-none')
-                              : cn('bg-chat-bubble-in text-[#e9edef]', showTail && 'rounded-tl-none'),
+                              ? cn('bg-[#005c4b] text-[#e9edef]', showTail && 'rounded-tr-none')
+                              : cn('bg-[#202c33] text-[#e9edef]', showTail && 'rounded-tl-none'),
                             message.is_deleted && 'italic opacity-70'
                           )}
                         >
@@ -839,6 +883,11 @@ function GroupMessageListComponent({ groupId, currentUserId, members }: GroupMes
                               width={message.media_width}
                               height={message.media_height}
                               isLatest={virtualItem.index === 0}
+                              onClick={() => setPreviewImage({
+                                url: message.media_url!,
+                                sender: senderName || 'Unknown',
+                                time: formatMessageTimeDisplay(message.created_at)
+                              })}
                             />
                           ) : (
                             <>
@@ -925,6 +974,15 @@ function GroupMessageListComponent({ groupId, currentUserId, members }: GroupMes
           <ArrowDown className="w-5 h-5 text-primary" />
         </Button>
       </div>
+
+      {/* Image Preview Modal */}
+      <ImagePreviewModal
+        isOpen={!!previewImage}
+        onClose={() => setPreviewImage(null)}
+        imageUrl={previewImage?.url || null}
+        senderName={previewImage?.sender}
+        timestamp={previewImage?.time}
+      />
     </div>
   );
 }
