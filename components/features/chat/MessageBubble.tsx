@@ -3,10 +3,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Message } from '@/types';
 import { cn, formatMessageTimeDisplay } from '@/lib/utils';
-import { Check, CheckCheck, ChevronDown, Edit, Trash2, Reply, Copy, Info, Loader2, Download } from 'lucide-react';
+import { ChevronDown, Edit, Trash2, Reply, Copy, Info, Download } from 'lucide-react';
 import { useUIStore } from '@/store/ui.store';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import Image from 'next/image';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -239,6 +238,7 @@ interface MessageBubbleProps {
   recipientName?: string | null;
   isLatestImage?: boolean; // Priority load for latest images
   currentUserName?: string; // For reply display
+  currentUserId?: string; // For reply sender comparison
 }
 
 function MessageBubbleComponent({
@@ -251,6 +251,7 @@ function MessageBubbleComponent({
   recipientName,
   isLatestImage = false,
   currentUserName,
+  currentUserId,
 }: MessageBubbleProps) {
   const {
     id,
@@ -331,11 +332,15 @@ function MessageBubbleComponent({
   };
 
   const handleReply = () => {
-    if (content) {
+    // Allow reply for both text and image messages
+    const replyContent = type === 'image' ? '📷 Photo' : content;
+    if (replyContent || type === 'image') {
       setReplyTo({
         id,
-        content,
+        content: replyContent || '📷 Photo',
         senderName: senderName || 'Unknown',
+        senderId: message.sender_id, // Store original sender's ID
+        mediaUrl: type === 'image' ? media_url : null,
       });
     }
   };
@@ -418,26 +423,48 @@ function MessageBubbleComponent({
             {reply_to && !is_deleted && (
               <div 
                 className={cn(
-                  "mb-1 px-2 py-1.5 rounded-lg border-l-2 cursor-pointer",
+                  "mb-1 px-2 py-1.5 rounded-lg border-l-2 cursor-pointer flex items-center gap-2",
                   isOwnMessage 
                     ? "bg-primary-foreground/10 border-primary-foreground/50" 
                     : "bg-muted/50 border-primary"
                 )}
               >
-                <p className={cn(
-                  "text-xs font-medium truncate",
-                  isOwnMessage ? "text-primary-foreground/80" : "text-primary"
-                )}>
-                  {reply_to.sender_id === message.sender_id 
-                    ? (isOwnMessage ? 'You' : senderName) 
-                    : (reply_to.sender?.full_name || (isOwnMessage ? recipientName : currentUserName) || 'Unknown')}
-                </p>
-                <p className={cn(
-                  "text-xs truncate",
-                  isOwnMessage ? "text-primary-foreground/60" : "text-muted-foreground"
-                )}>
-                  {reply_to.type === 'image' ? '📷 Photo' : reply_to.content || 'Message deleted'}
-                </p>
+                <div className="flex-1 min-w-0">
+                  <p className={cn(
+                    "text-xs font-medium truncate",
+                    isOwnMessage ? "text-primary-foreground/80" : "text-primary"
+                  )}>
+                    {(() => {
+                      // Check if replying to own message (current user's message)
+                      if (reply_to.sender_id === currentUserId) {
+                        return 'You';
+                      }
+                      // Replying to other user's message
+                      if (reply_to.sender?.full_name) {
+                        return reply_to.sender.full_name;
+                      }
+                      // Fallback - use recipientName (the other person in chat)
+                      return recipientName || 'Unknown';
+                    })()}
+                  </p>
+                  {/* Show text content only if not an image */}
+                  {reply_to.type !== 'image' && (
+                    <p className={cn(
+                      "text-xs truncate",
+                      isOwnMessage ? "text-primary-foreground/60" : "text-muted-foreground"
+                    )}>
+                      {reply_to.content || 'Message deleted'}
+                    </p>
+                  )}
+                </div>
+                {/* Image thumbnail for image replies */}
+                {reply_to.type === 'image' && reply_to.media_url && (
+                  <img
+                    src={reply_to.media_url}
+                    alt="Reply image"
+                    className="h-9 w-9 rounded object-cover shrink-0"
+                  />
+                )}
               </div>
             )}
 
@@ -593,6 +620,7 @@ export const MessageBubble = React.memo(MessageBubbleComponent, (prevProps, next
     prevProps.message.is_deleted === nextProps.message.is_deleted &&
     prevProps.message.created_at === nextProps.message.created_at &&
     prevProps.message.reply_to_id === nextProps.message.reply_to_id &&
+    prevProps.message.reply_to === nextProps.message.reply_to &&
     prevProps.isOwnMessage === nextProps.isOwnMessage &&
     prevProps.senderName === nextProps.senderName &&
     prevProps.showTail === nextProps.showTail &&
@@ -600,7 +628,8 @@ export const MessageBubble = React.memo(MessageBubbleComponent, (prevProps, next
     prevProps.recipientAvatarUrl === nextProps.recipientAvatarUrl &&
     prevProps.recipientName === nextProps.recipientName &&
     prevProps.isLatestImage === nextProps.isLatestImage &&
-    prevProps.currentUserName === nextProps.currentUserName
+    prevProps.currentUserName === nextProps.currentUserName &&
+    prevProps.currentUserId === nextProps.currentUserId
   );
 });
 

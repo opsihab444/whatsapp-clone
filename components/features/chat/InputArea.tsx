@@ -193,6 +193,15 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
     const currentFile = selectedImage;
     const replyToId = replyTo?.id || null;
 
+    // Build reply_to object BEFORE clearing (so reply shows instantly)
+    const replyToData = replyTo ? {
+      id: replyTo.id,
+      content: replyTo.content,
+      sender_id: replyTo.senderId, // Original message sender's ID
+      type: replyTo.mediaUrl ? 'image' as const : 'text' as const,
+      media_url: replyTo.mediaUrl || null,
+    } : null;
+
     // Clear reply state immediately
     if (replyTo) {
       setReplyTo(null);
@@ -217,6 +226,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
       created_at: timestamp,
       updated_at: timestamp,
       reply_to_id: replyToId,
+      reply_to: replyToData,
     };
 
     queryClient.setQueryData(['messages', conversationId], (old: any) => {
@@ -305,14 +315,16 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
           console.error('Message save failed:', error);
           return;
         }
-        // Update with real ID from database
+        // Update with real ID from database (preserve reply_to)
         queryClient.setQueryData(['messages', conversationId], (old: any) => {
           if (!old) return old;
           return {
             ...old,
             pages: old.pages.map((page: any[]) =>
               page.map((msg: any) =>
-                msg.id === tempId ? { ...savedMessage, _blobUrl: currentPreviewUrl } : msg
+                msg.id === tempId 
+                  ? { ...savedMessage, _blobUrl: currentPreviewUrl, reply_to: msg.reply_to } 
+                  : msg
               )
             ),
           };
@@ -332,12 +344,25 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
 
   // Send message - optimistic UI + database insert
   // Using only Postgres Realtime for message delivery (no WebSocket broadcast)
-  const sendMessage = useCallback(async (content: string, replyToId?: string | null) => {
+  const sendMessage = useCallback(async (
+    content: string, 
+    replyToId?: string | null,
+    replyToInfo?: { id: string; content: string; senderName: string; senderId: string; mediaUrl?: string | null } | null
+  ) => {
     if (!currentUserId) return;
 
     const trimmedContent = content.trim();
     const tempId = `temp-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
     const timestamp = new Date().toISOString();
+
+    // Build reply_to object for optimistic UI (so reply shows instantly)
+    const replyToData = replyToInfo ? {
+      id: replyToInfo.id,
+      content: replyToInfo.content,
+      sender_id: replyToInfo.senderId, // Original message sender's ID
+      type: replyToInfo.mediaUrl ? 'image' as const : 'text' as const,
+      media_url: replyToInfo.mediaUrl || null,
+    } : null;
 
     // Create optimistic message
     const optimisticMessage: Message = {
@@ -355,6 +380,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
       created_at: timestamp,
       updated_at: timestamp,
       reply_to_id: replyToId || null,
+      reply_to: replyToData,
     };
 
     // 1. Instantly add to local cache (UI updates immediately)
@@ -424,7 +450,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
         return;
       }
 
-      // Replace temp message with real one (keep original timestamp)
+      // Replace temp message with real one (keep original timestamp and reply_to)
       queryClient.setQueryData(['messages', conversationId], (old: any) => {
         if (!old) return old;
         return {
@@ -437,6 +463,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
                   status: 'sent',
                   created_at: msg.created_at,
                   updated_at: msg.updated_at,
+                  reply_to: msg.reply_to, // Preserve optimistic reply_to data
                 }
                 : msg
             )
@@ -456,7 +483,7 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
     } catch (err) {
       console.error('Message send error:', err);
     }
-  }, [conversationId, currentUserId, queryClient, supabase, replyTo]);
+  }, [conversationId, currentUserId, queryClient, supabase]);
 
   const handleSend = () => {
     // If image is selected, send image
@@ -533,17 +560,18 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
     // Clear input immediately for better UX (optimistic)
     setMessage('');
     
-    // Get reply ID before clearing
+    // Get reply info before clearing
     const replyToId = replyTo?.id || null;
+    const replyToInfo = replyTo ? { ...replyTo } : null;
     
     // Clear reply state
     if (replyTo) {
       setReplyTo(null);
     }
 
-    // Set sending state and send message
+    // Set sending state and send message with reply info
     setIsSending(true);
-    sendMessage(trimmedMessage, replyToId);
+    sendMessage(trimmedMessage, replyToId, replyToInfo);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -561,13 +589,26 @@ function InputAreaComponent({ conversationId, currentUserId, currentUserName }: 
         <div className="flex items-center gap-2 mb-2 px-2 max-w-4xl mx-auto w-full">
           <div className="flex-1 flex items-center gap-3 bg-secondary/50 rounded-xl px-3 py-2 border-l-4 border-primary">
             <Reply className="h-4 w-4 text-primary shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-primary truncate">
-                {replyTo.senderName}
-              </p>
-              <p className="text-sm text-muted-foreground truncate">
-                {replyTo.content}
-              </p>
+            <div className="flex-1 min-w-0 flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-primary truncate">
+                  {replyTo.senderName}
+                </p>
+                {/* Show text content only if not an image */}
+                {!replyTo.mediaUrl && (
+                  <p className="text-sm text-muted-foreground truncate">
+                    {replyTo.content}
+                  </p>
+                )}
+              </div>
+              {/* Image thumbnail for image replies */}
+              {replyTo.mediaUrl && (
+                <img
+                  src={replyTo.mediaUrl}
+                  alt="Reply image"
+                  className="h-10 w-10 rounded object-cover shrink-0"
+                />
+              )}
             </div>
             <button
               onClick={() => setReplyTo(null)}
